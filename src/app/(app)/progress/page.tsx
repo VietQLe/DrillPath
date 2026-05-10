@@ -35,7 +35,7 @@ export default async function ProgressPage() {
     .select('*')
     .eq('parent_id', user.id)
     .order('created_at')
-
+    
   if (!kids || kids.length === 0) redirect('/onboarding')
 
   const kidsProgress = await Promise.all(

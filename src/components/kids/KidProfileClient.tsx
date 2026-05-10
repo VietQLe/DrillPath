@@ -6,6 +6,77 @@ import { createClient } from '@/lib/supabase/client'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, AVATAR_COLORS, cn } from '@/lib/utils'
 import type { Kid, Sport, SkillLevel } from '@/types'
 
+function InviteSection({ kidId, linked }: { kidId: string; linked: boolean }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function generate() {
+    setState('loading')
+    setErr(null)
+    const res = await fetch('/api/invite/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kid_id: kidId }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setErr(data.error ?? 'Failed to generate invite'); setState('error'); return }
+    setInviteUrl(`${window.location.origin}/invite/${data.token}`)
+    setState('done')
+  }
+
+  async function copy() {
+    if (!inviteUrl) return
+    await navigator.clipboard.writeText(inviteUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (linked) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+        <span className="text-sm text-slate-600">Trainee account linked</span>
+      </div>
+    )
+  }
+
+  if (state === 'done' && inviteUrl) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-slate-500">Share this link with your trainee (expires in 7 days):</p>
+        <div className="flex gap-2">
+          <input
+            readOnly
+            value={inviteUrl}
+            className="flex-1 text-xs px-2 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 truncate"
+          />
+          <button
+            onClick={copy}
+            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
+      <button
+        onClick={generate}
+        disabled={state === 'loading'}
+        className="w-full py-2.5 border border-dashed border-slate-300 rounded-xl text-sm text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+      >
+        {state === 'loading' ? 'Generating…' : '+ Invite trainee'}
+      </button>
+    </div>
+  )
+}
+
 const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics']
 const SKILL_LEVELS: SkillLevel[] = ['beginner', 'intermediate', 'advanced']
 
@@ -47,6 +118,8 @@ export default function KidProfileClient({
   const [uploading, setUploading] = useState(false)
   const [cacheBust, setCacheBust] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [imgFailed, setImgFailed] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
@@ -54,29 +127,34 @@ export default function KidProfileClient({
 
   async function handlePhotoUpload(file: File) {
     setUploading(true)
-    setError(null)
+    setUploadError(null)
+    setImgFailed(false)
     try {
       const ext = file.name.split('.').pop() ?? 'jpg'
       const path = `${kid.id}/avatar.${ext}`
       const { error: uploadErr } = await supabase.storage
         .from('kid-avatars')
-        .upload(path, file, { upsert: true })
+        .upload(path, file, { upsert: false })
       if (uploadErr) throw uploadErr
 
       const { data: { publicUrl } } = supabase.storage
         .from('kid-avatars')
         .getPublicUrl(path)
 
-      const { error: updateErr } = await supabase
-        .from('kids')
-        .update({ avatar_url: publicUrl })
-        .eq('id', kid.id)
-      if (updateErr) throw updateErr
+      const res = await fetch('/api/kids/avatar', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kid_id: kid.id, avatar_url: publicUrl }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error ?? 'Failed to save avatar')
+      }
 
       setKid(k => ({ ...k, avatar_url: publicUrl }))
       setCacheBust(n => n + 1)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Upload failed')
+      setUploadError(e instanceof Error ? e.message : 'Upload failed')
     } finally {
       setUploading(false)
     }
@@ -141,11 +219,12 @@ export default function KidProfileClient({
       {/* Avatar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-4 flex flex-col items-center gap-3">
         <div className="relative">
-          {avatarSrc ? (
+          {avatarSrc && !imgFailed ? (
             <img
               src={avatarSrc}
               alt={kid.name}
               className="w-24 h-24 rounded-full object-cover"
+              onError={() => setImgFailed(true)}
             />
           ) : (
             <div className={cn(
@@ -175,6 +254,9 @@ export default function KidProfileClient({
             e.target.value = ''
           }}
         />
+        {uploadError && (
+          <p className="text-xs text-red-500 text-center">{uploadError}</p>
+        )}
         <div className="text-center">
           <h1 className="text-xl font-bold text-slate-900">{kid.name}</h1>
           <div className="flex items-center justify-center gap-2 mt-1">
@@ -354,6 +436,13 @@ export default function KidProfileClient({
           </div>
         )}
       </div>
+
+      {role === 'trainer' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 mt-4">
+          <h2 className="font-semibold text-slate-900 mb-4">Trainee</h2>
+          <InviteSection kidId={kid.id} linked={!!kid.trainee_user_id} />
+        </div>
+      )}
     </div>
   )
 }

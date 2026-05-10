@@ -4,7 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
 import type { Kid, SessionLog, TrainingPlan, PlanDrill, Drill } from '@/types'
-import InviteTraineeButton from '@/components/dashboard/InviteTraineeButton'
 
 async function getStreak(kidId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<number> {
   const { data } = await supabase
@@ -176,18 +175,6 @@ export default async function DashboardPage() {
               <div className="text-2xl font-bold text-slate-900">{totalSessions}</div>
               <div className="text-xs text-slate-500 mt-0.5">total sessions</div>
             </div>
-          </div>
-
-          {/* Trainee link */}
-          <div className="border-t border-slate-100 px-5 py-3 flex items-center justify-between">
-            {kid.trainee_user_id ? (
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-                <span className="text-xs text-slate-500">Trainee linked</span>
-              </div>
-            ) : (
-              <InviteTraineeButton kidId={kid.id} />
-            )}
           </div>
 
           {/* Today's workout */}
