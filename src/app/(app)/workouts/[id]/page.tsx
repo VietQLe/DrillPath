@@ -39,15 +39,26 @@ export default async function WorkoutDetailPage({
 
   if (!kid) notFound()
 
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
+  let dayStart: Date
+  let dayEnd: Date
+  if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+    const [y, m, d] = dateParam.split('-').map(Number)
+    dayStart = new Date(y, m - 1, d, 0, 0, 0, 0)
+    dayEnd = new Date(y, m - 1, d, 23, 59, 59, 999)
+  } else {
+    dayStart = new Date()
+    dayStart.setHours(0, 0, 0, 0)
+    dayEnd = new Date()
+    dayEnd.setHours(23, 59, 59, 999)
+  }
 
   const { data: todayLogs } = await supabase
     .from('session_logs')
     .select('drill_id')
     .eq('plan_id', id)
     .eq('kid_id', kid.id)
-    .gte('completed_at', todayStart.toISOString())
+    .gte('completed_at', dayStart.toISOString())
+    .lte('completed_at', dayEnd.toISOString())
 
   const completedDrillIds = new Set((todayLogs ?? []).map(c => c.drill_id))
 
