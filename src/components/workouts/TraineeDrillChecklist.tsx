@@ -16,10 +16,14 @@ export default function TraineeDrillChecklist({
   planId,
   drills,
   initialCompletedIds,
+  initialRating = null,
+  initialNotes = null,
 }: {
   planId: string
   drills: DrillEntry[]
   initialCompletedIds: string[]
+  initialRating?: number | null
+  initialNotes?: string | null
 }) {
   const router = useRouter()
   const [completedIds, setCompletedIds] = useState(new Set(initialCompletedIds))
@@ -29,6 +33,8 @@ export default function TraineeDrillChecklist({
   const [workoutRating, setWorkoutRating] = useState<1 | 2 | 3>(2)
   const [workoutNotes, setWorkoutNotes] = useState('')
   const [ratingLoading, setRatingLoading] = useState(false)
+  const [savedRating, setSavedRating] = useState<number | null>(initialRating)
+  const [savedNotes, setSavedNotes] = useState<string | null>(initialNotes)
 
   async function toggleDrill(drillId: string) {
     if (loading) return
@@ -72,6 +78,8 @@ export default function TraineeDrillChecklist({
       body: JSON.stringify({ planId, rating: workoutRating, notes: workoutNotes || null }),
     })
     setRatingLoading(false)
+    setSavedRating(workoutRating)
+    setSavedNotes(workoutNotes || null)
     setRatingStep(false)
     setFinished(true)
   }
@@ -131,18 +139,33 @@ export default function TraineeDrillChecklist({
 
   if (finished) {
     return (
-      <div className="text-center py-12 bg-white rounded-2xl border border-green-200">
-        <div className="text-5xl mb-4">🎉</div>
-        <h2 className="text-xl font-bold text-slate-900 mb-2">Workout complete!</h2>
-        <p className="text-slate-500 text-sm mb-6">
-          Great work — all {drills.length} drill{drills.length !== 1 ? 's' : ''} done.
-        </p>
-        <Link
-          href="/trainee"
-          className="inline-block px-6 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition-colors"
-        >
-          Back to dashboard
-        </Link>
+      <div className="bg-white rounded-2xl border border-green-200 overflow-hidden">
+        <div className="text-center py-10 px-6">
+          <div className="text-5xl mb-4">🎉</div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Workout complete!</h2>
+          <p className="text-slate-500 text-sm">
+            Great work — all {drills.length} drill{drills.length !== 1 ? 's' : ''} done.
+          </p>
+        </div>
+        {savedRating !== null && (
+          <div className="border-t border-green-100 px-6 py-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500 font-medium">Your rating</span>
+              <span className="text-base">{'⭐'.repeat(savedRating)}</span>
+            </div>
+            {savedNotes && (
+              <p className="text-sm text-slate-600 italic">"{savedNotes}"</p>
+            )}
+          </div>
+        )}
+        <div className="border-t border-green-100 p-5">
+          <Link
+            href="/trainee"
+            className="block w-full text-center py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition-colors"
+          >
+            Back to dashboard
+          </Link>
+        </div>
       </div>
     )
   }

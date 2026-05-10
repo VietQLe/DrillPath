@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { SPORT_EMOJI, SPORT_LABELS, LEVEL_COLORS, LEVEL_LABELS, cn } from '@/lib/utils'
 import type { Drill, Sport, SkillLevel, SkillFocus, AgeRange } from '@/types'
 
-const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics']
+const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu']
 const LEVELS: SkillLevel[] = ['beginner', 'intermediate', 'advanced']
 const SKILL_FOCUSES: SkillFocus[] = ['speed', 'agility', 'strength', 'technique', 'endurance', 'flexibility']
 const SKILL_FOCUS_EMOJI: Record<SkillFocus, string> = {

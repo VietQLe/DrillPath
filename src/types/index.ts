@@ -1,4 +1,4 @@
-export type Sport = 'basketball' | 'baseball' | 'gymnastics'
+export type Sport = 'basketball' | 'baseball' | 'gymnastics' | 'volleyball' | 'jiujitsu'
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced'
 export type SkillFocus = 'speed' | 'agility' | 'strength' | 'technique' | 'endurance' | 'flexibility'
 export type AgeRange = '5-8' | '9-12' | '13+'

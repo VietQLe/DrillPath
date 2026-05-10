@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
-import type { Kid, SessionLog } from '@/types'
+import type { Kid } from '@/types'
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸'
@@ -40,26 +40,35 @@ export default async function ProgressPage() {
 
   const kidsProgress = await Promise.all(
     (kids as Kid[]).map(async kid => {
-      const [{ data: logs }, { count: totalSessions }, { data: workoutSessionRows }] = await Promise.all([
-        supabase.from('session_logs').select('*, drill:drills(*)')
-          .eq('kid_id', kid.id).order('completed_at', { ascending: false }),
-        supabase.from('workout_sessions').select('*', { count: 'exact', head: true }).eq('kid_id', kid.id),
-        supabase.from('workout_sessions').select('completed_at').eq('kid_id', kid.id),
+      const [{ data: skillLogs }, { data: workoutSessionsFull }] = await Promise.all([
+        supabase.from('session_logs').select('drill:drills(skill_focus)').eq('kid_id', kid.id),
+        supabase.from('workout_sessions')
+          .select('completed_at, rating, notes, plan:training_plans(name)')
+          .eq('kid_id', kid.id)
+          .order('completed_at', { ascending: false }),
       ])
 
-      const sessions = (logs ?? []) as SessionLog[]
+      type WorkoutSessionRow = {
+        completed_at: string
+        rating: number | null
+        notes: string | null
+        plan: { name: string } | { name: string }[] | null
+      }
+      const workoutSessions = (workoutSessionsFull ?? []) as WorkoutSessionRow[]
+      const totalSessions = workoutSessions.length
 
       // Skill coverage breakdown (from individual drill logs)
       const skillCounts: Record<string, number> = {}
-      sessions.forEach(s => {
-        const focus = s.drill?.skill_focus
+      ;(skillLogs ?? []).forEach(s => {
+        const focus = (s.drill as unknown as { skill_focus: string } | null)?.skill_focus
         if (focus) skillCounts[focus] = (skillCounts[focus] ?? 0) + 1
       })
+      const totalDrillLogs = skillLogs?.length ?? 0
 
       // Last 7 days activity (from workout sessions)
       const last7 = getLast7Days()
       const activeDays = new Set(
-        (workoutSessionRows ?? []).map(s => new Date(s.completed_at).toISOString().split('T')[0])
+        workoutSessions.map(s => new Date(s.completed_at).toISOString().split('T')[0])
       )
       const weekActivity = last7.map(day => ({
         day,
@@ -67,7 +76,7 @@ export default async function ProgressPage() {
         active: activeDays.has(day),
       }))
 
-      return { kid, sessions, totalSessions: totalSessions ?? 0, skillCounts, weekActivity }
+      return { kid, workoutSessions, totalSessions, skillCounts, totalDrillLogs, weekActivity }
     })
   )
 
@@ -78,7 +87,7 @@ export default async function ProgressPage() {
         <p className="text-slate-500 text-sm">Track your athletes' growth over time.</p>
       </div>
 
-      {kidsProgress.map(({ kid, sessions, totalSessions, skillCounts, weekActivity }) => (
+      {kidsProgress.map(({ kid, workoutSessions, totalSessions, skillCounts, totalDrillLogs, weekActivity }) => (
         <div key={kid.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Kid header */}
           <div className="p-5 flex items-center gap-3 border-b border-slate-100">
@@ -144,14 +153,14 @@ export default async function ProgressPage() {
                 {Object.entries(skillCounts)
                   .sort(([, a], [, b]) => b - a)
                   .map(([skill, count]) => {
-                    const pct = Math.min(100, Math.round((count / totalSessions) * 100))
+                    const pct = totalDrillLogs > 0 ? Math.min(100, Math.round((count / totalDrillLogs) * 100)) : 0
                     return (
                       <div key={skill}>
                         <div className="flex justify-between text-sm mb-1">
                           <span className="text-slate-700 capitalize">
                             {SKILL_FOCUS_EMOJI[skill]} {skill}
                           </span>
-                          <span className="text-slate-400">{count} sessions</span>
+                          <span className="text-slate-400">{count} drills</span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                           <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
@@ -163,33 +172,36 @@ export default async function ProgressPage() {
             </div>
           )}
 
-          {/* Recent sessions */}
-          {sessions.length > 0 ? (
+          {/* All sessions */}
+          {workoutSessions.length > 0 ? (
             <div className="p-5">
               <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
                 All Sessions ({totalSessions})
               </h3>
               <div className="space-y-3 max-h-64 overflow-y-auto">
-                {sessions.map(log => (
-                  <div key={log.id} className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                      ✓
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm text-slate-900 truncate">{log.drill?.title}</div>
-                      <div className="text-xs text-slate-400 flex items-center gap-2">
-                        <span>{new Date(log.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                        {log.rating && <span>{'⭐'.repeat(log.rating)}</span>}
+                {workoutSessions.map((ws, i) => {
+                  const planName = Array.isArray(ws.plan) ? ws.plan[0]?.name : ws.plan?.name
+                  return (
+                    <div key={i} className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        ✓
                       </div>
-                      {log.notes && <p className="text-xs text-slate-500 mt-0.5 italic">"{log.notes}"</p>}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-slate-900 truncate">{planName ?? 'Workout'}</div>
+                        <div className="text-xs text-slate-400 flex items-center gap-2">
+                          <span>{new Date(ws.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          {ws.rating && <span>{'⭐'.repeat(ws.rating)}</span>}
+                        </div>
+                        {ws.notes && <p className="text-xs text-slate-500 mt-0.5 italic">&ldquo;{ws.notes}&rdquo;</p>}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           ) : (
             <div className="p-5 text-center text-slate-400 text-sm">
-              No sessions logged yet. Go try a drill!
+              No sessions logged yet. Complete a workout!
             </div>
           )}
         </div>

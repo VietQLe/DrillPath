@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { SPORT_EMOJI, SPORT_LABELS, LEVEL_COLORS, LEVEL_LABELS, AGE_RANGE_LABELS, formatDuration, cn } from '@/lib/utils'
 import type { Drill, Sport, SkillLevel, AgeRange } from '@/types'
 
-const SPORTS = ['basketball', 'baseball', 'gymnastics'] as const
+const SPORTS = ['basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu'] as const
 const LEVELS = ['beginner', 'intermediate', 'advanced'] as const
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',

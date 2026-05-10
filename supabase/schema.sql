@@ -6,7 +6,7 @@ create table if not exists kids (
   parent_id uuid references auth.users(id) on delete cascade not null,
   name text not null,
   age integer not null check (age between 4 and 18),
-  sport text not null check (sport in ('basketball', 'baseball', 'gymnastics')),
+  sport text not null check (sport in ('basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu')),
   skill_level text not null check (skill_level in ('beginner', 'intermediate', 'advanced')),
   avatar_color text not null default 'bg-blue-500',
   created_at timestamptz default now()
@@ -24,7 +24,7 @@ create table if not exists drills (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text not null,
-  sport text not null check (sport in ('basketball', 'baseball', 'gymnastics')),
+  sport text not null check (sport in ('basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu')),
   skill_focus text not null check (skill_focus in ('speed', 'agility', 'strength', 'technique', 'endurance', 'flexibility')),
   difficulty text not null check (difficulty in ('beginner', 'intermediate', 'advanced')),
   age_range text not null check (age_range in ('5-8', '9-12', '13+')),
@@ -169,7 +169,7 @@ create table if not exists workout_templates (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   focus text,
-  sport text not null check (sport in ('basketball', 'baseball', 'gymnastics')),
+  sport text not null check (sport in ('basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu')),
   difficulty text not null check (difficulty in ('beginner', 'intermediate', 'advanced')),
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz default now()
@@ -393,6 +393,14 @@ alter table workout_sessions add column if not exists notes text;
 -- alter table workout_sessions add column if not exists rating smallint;
 -- alter table workout_sessions add column if not exists notes text;
 
+-- Add volleyball and jiujitsu sport support (run on existing databases):
+-- alter table kids drop constraint if exists kids_sport_check;
+-- alter table kids add constraint kids_sport_check check (sport in ('basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu'));
+-- alter table drills drop constraint if exists drills_sport_check;
+-- alter table drills add constraint drills_sport_check check (sport in ('basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu'));
+-- alter table workout_templates drop constraint if exists workout_templates_sport_check;
+-- alter table workout_templates add constraint workout_templates_sport_check check (sport in ('basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu'));
+
 -- =====================
 -- SEED DATA: Drill Library
 -- =====================
@@ -463,6 +471,76 @@ insert into drills (title, description, sport, skill_focus, difficulty, age_rang
   '{"Always work with a qualified spotter or coach", "Drill 1: Seated snap-down — jump backward from seated position", "Drill 2: Back handspring on stacked mats — lower height removes fear", "Drill 3: Spotted back handspring on floor — spotter at back and wrist", "Drill 4: Back handspring on rod floor or trampoline for feel", "Full attempt: spotted, then semi-spotted, then solo when ready", "Never rush progressions — safety first"}');
 
 -- =====================
+-- SEED DATA: Volleyball Drills
+-- =====================
+
+insert into drills (title, description, sport, skill_focus, difficulty, age_range, duration_minutes, equipment, instructions) values
+
+-- VOLLEYBALL - Beginner
+('Underhand Serve', 'Learn the basic underhand serve to consistently put the ball in play. Perfect for young players just starting out.', 'volleyball', 'technique', 'beginner', '5-8', 8, '{"volleyball"}',
+  '{"Stand 5 feet from the net or serving line", "Hold the ball in your non-dominant hand at waist height", "Step forward with your opposite foot as you swing", "Strike the ball with a closed fist at the base", "Follow through toward your target", "Practice 20 serves, aim for inside the court"}'),
+
+('Forearm Pass (Bump)', 'The forearm pass is the foundation of volleyball defense. Learn to control incoming balls with your forearms.', 'volleyball', 'technique', 'beginner', '5-8', 10, '{"volleyball"}',
+  '{"Stand with feet shoulder-width apart, knees bent", "Clasp hands together, thumbs parallel and flat", "Keep arms straight and at a 45-degree angle from your body", "Move your whole body behind the ball before contact", "Bump ball upward using your forearms — no wrist snap", "Toss ball to yourself and practice 30 passes"}'),
+
+('Wall Setting', 'Practice the overhead set against a wall to build fingertip control without needing a partner.', 'volleyball', 'technique', 'beginner', '9-12', 10, '{"volleyball"}',
+  '{"Stand 2 feet from a wall", "Form a triangle with your thumbs and index fingers above your forehead", "Toss ball against the wall to eye level", "Set it back using fingertips — not palms", "Keep elbows bent and push through the ball at contact", "Do 3 sets of 20 consecutive sets without dropping"}'),
+
+-- VOLLEYBALL - Intermediate
+('Spike Approach', 'Drill the 4-step approach and arm swing to build a consistent attacking motion.', 'volleyball', 'technique', 'intermediate', '9-12', 12, '{"volleyball"}',
+  '{"Learn the 4-step approach: right-left-right-left for right-handers", "Drive both arms back as your last two feet plant", "Jump off both feet simultaneously, reach high and forward", "Swing your dominant arm from high to low in a fast arc", "Land balanced on both feet", "Add a tossed ball and practice 20 full approach swings"}'),
+
+('Defensive Dig', 'React and dig balls hit to your left and right to build defensive coverage and court awareness.', 'volleyball', 'agility', 'intermediate', '9-12', 12, '{"volleyball"}',
+  '{"Start in a defensive ready stance: low hips, weight on balls of feet", "Have a partner point left or right — shuffle quickly 2-3 steps", "Get your platform behind the ball and pass it back up", "Progress to partner tossing balls to alternating sides", "Focus on getting low rather than reaching with your arms", "Do 3 sets of 10 reps each direction"}'),
+
+('Zone Serving', 'Develop serving accuracy by targeting specific zones of the court to pressure the opponent.', 'volleyball', 'technique', 'intermediate', '13+', 15, '{"volleyball"}',
+  '{"Mark 6 zones on the opposite side with cones or tape", "Serve from behind the end line", "Call out a target zone before each serve", "Track results: try to hit each zone 3 times", "Mix deep corner serves with short float serves", "Goal: 15 out of 18 serves land in the intended zone"}'),
+
+-- VOLLEYBALL - Advanced
+('Jump Serve', 'Progress toward a powerful jump serve using a full toss, approach, and attack motion.', 'volleyball', 'speed', 'advanced', '13+', 15, '{"volleyball"}',
+  '{"Toss ball high and slightly forward from behind the end line", "Take 3-4 steps to build momentum, time your jump to the toss", "Strike ball at the peak of your reach with arm fully extended", "Snap your wrist for topspin to drive the ball down into the court", "Start 6 feet back to allow room, move to the line as timing improves", "10 reps focusing on toss consistency, then 10 focusing on power"}'),
+
+('Transition Attack', 'Simulate match conditions: defend a dig, transition back, and attack on the next set.', 'volleyball', 'agility', 'advanced', '13+', 20, '{"volleyball"}',
+  '{"Start in back-row defensive position", "Partner hits a down ball — you dig it to the setter target", "Quickly transition forward to attack position off the net", "Setter delivers a set — attack with a full approach", "Reset and repeat from the opposite side", "Do 5 reps each side, emphasizing speed of transition"}'),
+
+('Blocking Footwork', 'Sharpen your block timing and lateral movement to seal the net against outside and middle attacks.', 'volleyball', 'technique', 'advanced', '13+', 15, '{"volleyball"}',
+  '{"Start at the middle of the net in a ready position", "Shuffle to the pin on the coach''s signal — no crossover steps", "Jump and reach with both hands, arms close together and straight", "Lead with your outside hand to cut off the cross-court angle", "Land balanced and immediately reset to the middle", "Do 15 reps alternating left and right blocks"}'),
+
+-- =====================
+-- SEED DATA: Jiu-Jitsu Drills
+-- =====================
+
+-- JIUJITSU - Beginner
+('Shrimping (Hip Escape)', 'Shrimping is the most fundamental movement in jiu-jitsu. Build the reflex of creating space from your back.', 'jiujitsu', 'flexibility', 'beginner', '5-8', 8, '{"mat"}',
+  '{"Lie flat on your back, knees bent, feet flat on mat", "Bridge up on one shoulder and plant the same-side foot", "Shoot your hips away from your planted foot in a curved arc", "Your body forms a C-shape — repeat on the other side", "Travel continuously down the mat for 20 reps", "Focus on smooth hip motion first, then build speed"}'),
+
+('Breakfall and Rolling', 'Safe breakfall and rolling drills build body awareness and comfort with hitting the mat — essential before any technique.', 'jiujitsu', 'technique', 'beginner', '5-8', 8, '{"mat"}',
+  '{"Tuck your chin to your chest before any roll", "Place one hand on the mat and roll diagonally over that shoulder", "Never roll directly on the top of your head", "Keep arms rounded, not straight, to absorb impact", "Roll smoothly onto your back and come to standing", "Practice 10 rolls each shoulder, slow and controlled"}'),
+
+('Guard Retention', 'Learn to maintain guard position when a partner tries to pass, building hip mobility and spatial awareness.', 'jiujitsu', 'technique', 'beginner', '9-12', 12, '{"mat","training partner"}',
+  '{"Start in open guard with partner kneeling in front of you", "Partner tries to pass around your legs — you use feet to frame and redirect", "Keep your feet between you and your partner at all times", "Hip escape to re-establish guard if partially passed", "Switch roles every 2 minutes", "3 rounds of 2 minutes, focus on movement not submission"}'),
+
+-- JIUJITSU - Intermediate
+('Triangle Choke Entry', 'Drill the mechanical entry to the triangle choke from closed guard — one of the most common submissions.', 'jiujitsu', 'technique', 'intermediate', '9-12', 15, '{"mat","training partner"}',
+  '{"Start in closed guard with partner standing or posturing up", "Break partner''s posture by pulling them forward with both arms", "Push one of their arms across their centerline using your leg", "Shoot your leg up and over their shoulder, locking behind their head", "Close the triangle by locking your ankle behind your opposite knee", "Practice the entry only for 10 reps each side — partner must tap when locked"}'),
+
+('Armbar from Guard', 'Practice the foundational armbar from closed guard, focusing on hip extension and arm control.', 'jiujitsu', 'technique', 'intermediate', '9-12', 15, '{"mat","training partner"}',
+  '{"Start in closed guard", "Control one wrist with both hands and pivot your hips 90 degrees toward that arm", "Throw your top leg over partner''s head", "Open guard and squeeze knees together above and below their elbow", "Extend hips upward slowly — partner taps at first pressure", "10 reps each arm at a slow, controlled pace"}'),
+
+('Double Leg Takedown', 'Build the foundational wrestling takedown used in jiu-jitsu: level change, penetration step, finish.', 'jiujitsu', 'strength', 'intermediate', '13+', 15, '{"mat","training partner"}',
+  '{"Stand in wrestling stance: dominant foot back, hands up", "Shoot: lower your level by bending your knees, not hunching your back", "Step deeply between partner''s legs with your lead foot", "Drive your shoulder into partner''s hip and wrap both arms behind their knees", "Lift and drive forward to finish — partner lands safely on the mat", "10 slow-motion reps for technique, then 10 at speed with light resistance"}'),
+
+-- JIUJITSU - Advanced
+('Back Take from Turtle', 'Drill the sequence for taking the back from an opponent in turtle position — a high-percentage match situation.', 'jiujitsu', 'technique', 'advanced', '13+', 20, '{"mat","training partner"}',
+  '{"Partner is in turtle position: on all fours with head tucked", "Establish a seatbelt grip: one arm over their shoulder, one arm under their opposite arm", "Insert your lower hook (leg) into partner''s hip from the side", "Roll to your back taking partner with you, insert the second hook", "Lock your hands tight on the seatbelt grip — rear naked choke position", "Partner attempts escape; 5 reps each side at moderate resistance"}'),
+
+('De La Riva Sweep', 'Build the De La Riva hook and fundamental sweep to off-balance standing opponents from seated guard.', 'jiujitsu', 'agility', 'advanced', '13+', 20, '{"mat","training partner"}',
+  '{"Start seated as partner stands in front of you", "Hook your outside leg around their lead leg — this is the De La Riva hook", "Grip their far ankle and their sleeve or collar with opposite hands", "Extend your hook leg to break their base while pulling the ankle toward you", "Sweep them to the side and follow on top to a dominant position", "5 reps each side, progressing from light to medium resistance"}'),
+
+('Ashi Garami (Leg Control)', 'Learn the foundational leg entanglement position before attempting any leg lock submissions.', 'jiujitsu', 'strength', 'advanced', '13+', 20, '{"mat","training partner"}',
+  '{"Face a seated or kneeling partner", "Sit through and triangle your legs around their leg in ashi garami position", "Establish inside heel control with a two-on-one grip", "Turn toward the leg you control — keep your frame tight", "Elevate and stretch for a heel hook entry slowly — partner taps at any pressure", "Train position-only first: 5-minute positional rounds before working any finish"}');
+
+-- =====================
 -- SEED DATA: Workout Templates
 -- =====================
 
@@ -472,16 +550,24 @@ declare
   bball_int uuid := '22222222-2222-2222-2222-222222222222';
   base_fund uuid := '33333333-3333-3333-3333-333333333333';
   base_game uuid := '44444444-4444-4444-4444-444444444444';
-  gym_beg  uuid := '55555555-5555-5555-5555-555555555555';
-  gym_int  uuid := '66666666-6666-6666-6666-666666666666';
+  gym_beg   uuid := '55555555-5555-5555-5555-555555555555';
+  gym_int   uuid := '66666666-6666-6666-6666-666666666666';
+  vball_beg uuid := '77777777-7777-7777-7777-777777777777';
+  vball_int uuid := '88888888-8888-8888-8888-888888888888';
+  jjt_beg   uuid := '99999999-9999-9999-9999-999999999999';
+  jjt_adv   uuid := 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 begin
   insert into workout_templates (id, name, focus, sport, difficulty) values
-    (bball_beg, 'Beginner Ball Handling', 'Build foundational dribbling skills and learn how to finish at the basket', 'basketball', 'beginner'),
-    (bball_int, 'Shooting & Conditioning', 'Sharpen your free throw routine and build game-speed endurance', 'basketball', 'intermediate'),
-    (base_fund, 'Hitting Fundamentals', 'Develop proper swing mechanics and throwing form from the ground up', 'baseball', 'beginner'),
-    (base_game, 'Game Day Prep', 'Full session covering pitching mechanics, base running, and live hitting', 'baseball', 'intermediate'),
-    (gym_beg,  'Gymnastics Foundations', 'Learn the essential beginner skills safely with correct technique', 'gymnastics', 'beginner'),
-    (gym_int,  'Tumbling Progressions', 'Progress toward intermediate tumbling with structured skill-building drills', 'gymnastics', 'intermediate')
+    (bball_beg, 'Beginner Ball Handling',    'Build foundational dribbling skills and learn how to finish at the basket',      'basketball', 'beginner'),
+    (bball_int, 'Shooting & Conditioning',   'Sharpen your free throw routine and build game-speed endurance',                  'basketball', 'intermediate'),
+    (base_fund, 'Hitting Fundamentals',      'Develop proper swing mechanics and throwing form from the ground up',             'baseball',   'beginner'),
+    (base_game, 'Game Day Prep',             'Full session covering pitching mechanics, base running, and live hitting',         'baseball',   'intermediate'),
+    (gym_beg,   'Gymnastics Foundations',    'Learn the essential beginner skills safely with correct technique',                'gymnastics', 'beginner'),
+    (gym_int,   'Tumbling Progressions',     'Progress toward intermediate tumbling with structured skill-building drills',      'gymnastics', 'intermediate'),
+    (vball_beg, 'Volleyball Fundamentals',   'Master the three core skills every player needs: serve, pass, and set',           'volleyball', 'beginner'),
+    (vball_int, 'Attack & Defense Session',  'Build your offensive approach and sharpen defensive reactions',                    'volleyball', 'intermediate'),
+    (jjt_beg,   'BJJ Basics',                'Build the foundational movements and positions every beginner must know',          'jiujitsu',   'beginner'),
+    (jjt_adv,   'Submission Chains',         'Link your guard submissions and back takes into smooth positional sequences',      'jiujitsu',   'advanced')
   on conflict (id) do nothing;
 
   if not exists (select 1 from template_drills where template_id = bball_beg) then
@@ -523,5 +609,33 @@ begin
     insert into template_drills (template_id, drill_id, display_order) values
       (gym_int, (select id from drills where title = 'Back Walkover Progressions' and created_by is null limit 1), 0),
       (gym_int, (select id from drills where title = 'Round Off'                  and created_by is null limit 1), 1);
+  end if;
+
+  if not exists (select 1 from template_drills where template_id = vball_beg) then
+    insert into template_drills (template_id, drill_id, display_order) values
+      (vball_beg, (select id from drills where title = 'Underhand Serve'       and created_by is null limit 1), 0),
+      (vball_beg, (select id from drills where title = 'Forearm Pass (Bump)'   and created_by is null limit 1), 1),
+      (vball_beg, (select id from drills where title = 'Wall Setting'          and created_by is null limit 1), 2);
+  end if;
+
+  if not exists (select 1 from template_drills where template_id = vball_int) then
+    insert into template_drills (template_id, drill_id, display_order) values
+      (vball_int, (select id from drills where title = 'Spike Approach'   and created_by is null limit 1), 0),
+      (vball_int, (select id from drills where title = 'Defensive Dig'    and created_by is null limit 1), 1),
+      (vball_int, (select id from drills where title = 'Zone Serving'     and created_by is null limit 1), 2);
+  end if;
+
+  if not exists (select 1 from template_drills where template_id = jjt_beg) then
+    insert into template_drills (template_id, drill_id, display_order) values
+      (jjt_beg, (select id from drills where title = 'Shrimping (Hip Escape)'    and created_by is null limit 1), 0),
+      (jjt_beg, (select id from drills where title = 'Breakfall and Rolling'     and created_by is null limit 1), 1),
+      (jjt_beg, (select id from drills where title = 'Guard Retention'           and created_by is null limit 1), 2);
+  end if;
+
+  if not exists (select 1 from template_drills where template_id = jjt_adv) then
+    insert into template_drills (template_id, drill_id, display_order) values
+      (jjt_adv, (select id from drills where title = 'Triangle Choke Entry'    and created_by is null limit 1), 0),
+      (jjt_adv, (select id from drills where title = 'Armbar from Guard'       and created_by is null limit 1), 1),
+      (jjt_adv, (select id from drills where title = 'Back Take from Turtle'   and created_by is null limit 1), 2);
   end if;
 end $$;

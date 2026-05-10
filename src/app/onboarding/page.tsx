@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { SPORT_EMOJI, SPORT_LABELS, AVATAR_COLORS, cn } from '@/lib/utils'
 import type { Sport, SkillLevel } from '@/types'
 
-const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics']
+const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu']
 const LEVELS: { value: SkillLevel; label: string; description: string }[] = [
   { value: 'beginner', label: 'Just Starting', description: 'Little to no experience' },
   { value: 'intermediate', label: 'Some Experience', description: 'Played 1–2 seasons' },

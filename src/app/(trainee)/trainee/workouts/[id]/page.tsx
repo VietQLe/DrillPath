@@ -40,12 +40,15 @@ export default async function TraineeWorkoutPage({
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
 
-  const { data: todayLogs } = await admin
-    .from('session_logs')
-    .select('drill_id')
-    .eq('plan_id', id)
-    .eq('kid_id', kid.id)
-    .gte('completed_at', todayStart.toISOString())
+  const [{ data: todayLogs }, { data: sessionRow }] = await Promise.all([
+    admin.from('session_logs').select('drill_id')
+      .eq('plan_id', id).eq('kid_id', kid.id)
+      .gte('completed_at', todayStart.toISOString()),
+    admin.from('workout_sessions').select('rating, notes')
+      .eq('plan_id', id).eq('kid_id', kid.id)
+      .gte('completed_at', todayStart.toISOString())
+      .maybeSingle(),
+  ])
 
   const completedDrillIds = new Set((todayLogs ?? []).map(l => l.drill_id))
   const drills = ([...(plan.plan_drills ?? [])] as (PlanDrill & { drill: Drill })[])
@@ -119,6 +122,8 @@ export default async function TraineeWorkoutPage({
           planId={id}
           drills={drills}
           initialCompletedIds={[...completedDrillIds]}
+          initialRating={sessionRow?.rating ?? null}
+          initialNotes={sessionRow?.notes ?? null}
         />
       )}
     </div>

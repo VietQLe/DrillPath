@@ -77,7 +77,7 @@ function InviteSection({ kidId, linked }: { kidId: string; linked: boolean }) {
   )
 }
 
-const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics']
+const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu']
 const SKILL_LEVELS: SkillLevel[] = ['beginner', 'intermediate', 'advanced']
 
 function heightDisplay(inches: number | null): string {

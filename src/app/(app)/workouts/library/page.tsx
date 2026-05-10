@@ -5,7 +5,7 @@ import FavoriteButton from '@/components/workouts/FavoriteButton'
 import { SPORT_EMOJI, SPORT_LABELS, LEVEL_COLORS, LEVEL_LABELS, formatDuration, cn } from '@/lib/utils'
 import type { Kid, WorkoutTemplate, TemplateDrill, Drill, Sport } from '@/types'
 
-const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics']
+const SPORTS: Sport[] = ['basketball', 'baseball', 'gymnastics', 'volleyball', 'jiujitsu']
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',

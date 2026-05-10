@@ -10,12 +10,16 @@ export const SPORT_LABELS: Record<Sport, string> = {
   basketball: 'Basketball',
   baseball: 'Baseball / Softball',
   gymnastics: 'Gymnastics',
+  volleyball: 'Volleyball',
+  jiujitsu: 'Jiu-Jitsu',
 }
 
 export const SPORT_EMOJI: Record<Sport, string> = {
   basketball: '🏀',
   baseball: '⚾',
   gymnastics: '🤸',
+  volleyball: '🏐',
+  jiujitsu: '🥋',
 }
 
 export const LEVEL_LABELS: Record<SkillLevel, string> = {

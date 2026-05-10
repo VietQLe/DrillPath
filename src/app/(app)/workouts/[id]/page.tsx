@@ -52,13 +52,15 @@ export default async function WorkoutDetailPage({
     dayEnd.setHours(23, 59, 59, 999)
   }
 
-  const { data: todayLogs } = await supabase
-    .from('session_logs')
-    .select('drill_id')
-    .eq('plan_id', id)
-    .eq('kid_id', kid.id)
-    .gte('completed_at', dayStart.toISOString())
-    .lte('completed_at', dayEnd.toISOString())
+  const [{ data: todayLogs }, { data: sessionRow }] = await Promise.all([
+    supabase.from('session_logs').select('drill_id')
+      .eq('plan_id', id).eq('kid_id', kid.id)
+      .gte('completed_at', dayStart.toISOString()).lte('completed_at', dayEnd.toISOString()),
+    supabase.from('workout_sessions').select('rating, notes')
+      .eq('plan_id', id).eq('kid_id', kid.id)
+      .gte('completed_at', dayStart.toISOString()).lte('completed_at', dayEnd.toISOString())
+      .maybeSingle(),
+  ])
 
   const completedDrillIds = new Set((todayLogs ?? []).map(c => c.drill_id))
 
@@ -138,6 +140,8 @@ export default async function WorkoutDetailPage({
           kidId={kid.id}
           drills={drills}
           initialCompletedIds={[...completedDrillIds]}
+          initialRating={sessionRow?.rating ?? null}
+          initialNotes={sessionRow?.notes ?? null}
         />
       )}
 
