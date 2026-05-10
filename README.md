@@ -1,6 +1,6 @@
 # DrillPath
 
-Train your young champion. A drill library + progress tracker for youth sports parents.
+Train your young athlete. A drill library + progress tracker for youth sports parents.
 
 **Sports:** Basketball, Baseball/Softball, Gymnastics
 

@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "CoachHQ",
-  description: "Train your young champion",
+  description: "Train your young athlete",
   manifest: "/manifest.json",
   themeColor: "#2563eb",
   appleWebApp: {
