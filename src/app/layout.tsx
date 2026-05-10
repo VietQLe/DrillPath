@@ -7,6 +7,13 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "DrillPath",
   description: "Train your young champion",
+  manifest: "/manifest.json",
+  themeColor: "#2563eb",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "DrillPath",
+  },
 };
 
 export default function RootLayout({

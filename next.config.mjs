@@ -1,8 +1,15 @@
+import withPWAInit from 'next-pwa'
+
+const withPWA = withPWAInit({
+  dest: 'public',
+  disable: process.env.NODE_ENV === 'development',
+})
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    eslint: {
+  eslint: {
     ignoreDuringBuilds: true,
   },
 }
 
-export default nextConfig
+export default withPWA(nextConfig)
