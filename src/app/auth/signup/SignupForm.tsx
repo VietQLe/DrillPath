@@ -52,7 +52,7 @@ export default function SignupForm() {
           </h1>
 
           <p className="text-slate-500 mt-1">
-            Train your champion
+            Train your athlete
           </p>
         </div>
 

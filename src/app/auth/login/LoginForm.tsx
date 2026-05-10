@@ -44,7 +44,7 @@ export default function LoginForm() {
         <div className="text-center mb-8">
           <div className="text-4xl mb-2">🏆</div>
           <h1 className="text-3xl font-bold text-slate-900">CoachHQ</h1>
-          <p className="text-slate-500 mt-1">Train your champion</p>
+          <p className="text-slate-500 mt-1">Train your athlete</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
