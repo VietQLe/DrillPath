@@ -299,6 +299,29 @@ create policy "Trainees can view their plan exceptions"
   );
 
 -- =====================
+-- WORKOUT SESSIONS
+-- =====================
+-- One row per fully-completed workout (all drills checked off)
+
+create table if not exists workout_sessions (
+  id uuid primary key default gen_random_uuid(),
+  kid_id uuid references kids(id) on delete cascade not null,
+  plan_id uuid references training_plans(id) on delete cascade not null,
+  completed_at timestamptz default now()
+);
+
+alter table workout_sessions enable row level security;
+
+create policy "Parents manage workout sessions"
+  on workout_sessions for all
+  using (kid_id in (select id from kids where parent_id = auth.uid()))
+  with check (kid_id in (select id from kids where parent_id = auth.uid()));
+
+create policy "Trainees view own workout sessions"
+  on workout_sessions for select
+  using (kid_id in (select id from kids where trainee_user_id = auth.uid()));
+
+-- =====================
 -- KID PROFILE FIELDS
 -- =====================
 
@@ -355,11 +378,20 @@ create policy "Trainees manage own avatar"
     )
   );
 
+-- =====================
+-- WORKOUT SESSION FEEDBACK
+-- =====================
+
+alter table workout_sessions add column if not exists rating smallint;
+alter table workout_sessions add column if not exists notes text;
+
 -- Migration shortcuts (run if altering an existing database):
 -- alter table kids add column if not exists trainee_user_id uuid references auth.users(id) on delete set null;
 -- alter table kids add column if not exists weight numeric;
 -- alter table kids add column if not exists height numeric;
 -- alter table kids add column if not exists avatar_url text;
+-- alter table workout_sessions add column if not exists rating smallint;
+-- alter table workout_sessions add column if not exists notes text;
 
 -- =====================
 -- SEED DATA: Drill Library

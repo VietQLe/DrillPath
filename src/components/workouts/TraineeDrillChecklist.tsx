@@ -25,6 +25,10 @@ export default function TraineeDrillChecklist({
   const [completedIds, setCompletedIds] = useState(new Set(initialCompletedIds))
   const [loading, setLoading] = useState<string | null>(null)
   const [finished, setFinished] = useState(initialCompletedIds.length === drills.length && drills.length > 0)
+  const [ratingStep, setRatingStep] = useState(false)
+  const [workoutRating, setWorkoutRating] = useState<1 | 2 | 3>(2)
+  const [workoutNotes, setWorkoutNotes] = useState('')
+  const [ratingLoading, setRatingLoading] = useState(false)
 
   async function toggleDrill(drillId: string) {
     if (loading) return
@@ -52,12 +56,77 @@ export default function TraineeDrillChecklist({
         const next = new Set(completedIds)
         next.add(drillId)
         setCompletedIds(next)
-        if (next.size === drills.length) setFinished(true)
+        if (next.size === drills.length) setRatingStep(true)
       }
       router.refresh()
     }
 
     setLoading(null)
+  }
+
+  async function submitRating() {
+    setRatingLoading(true)
+    await fetch('/api/trainee/rate-workout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId, rating: workoutRating, notes: workoutNotes || null }),
+    })
+    setRatingLoading(false)
+    setRatingStep(false)
+    setFinished(true)
+  }
+
+  if (ratingStep) {
+    return (
+      <div className="bg-white rounded-2xl border border-green-200 p-6">
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-2">✓</div>
+          <h2 className="text-lg font-bold text-slate-900">All drills done!</h2>
+          <p className="text-slate-500 text-sm">How did the workout go?</p>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Rate this workout</label>
+            <div className="flex gap-3">
+              {([1, 2, 3] as const).map(r => (
+                <button
+                  key={r}
+                  onClick={() => setWorkoutRating(r)}
+                  className={cn(
+                    'flex-1 py-3 rounded-xl border-2 text-lg transition-all',
+                    workoutRating === r ? 'border-yellow-400 bg-yellow-50' : 'border-slate-200 hover:border-slate-300'
+                  )}
+                >
+                  {'⭐'.repeat(r)}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-between text-xs text-slate-400 mt-1 px-1">
+              <span>Tough</span>
+              <span>Good</span>
+              <span>Crushed it!</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Notes (optional)</label>
+            <textarea
+              value={workoutNotes}
+              onChange={e => setWorkoutNotes(e.target.value)}
+              rows={2}
+              placeholder="e.g. great session, worked on form..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            />
+          </div>
+          <button
+            onClick={submitRating}
+            disabled={ratingLoading}
+            className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-semibold rounded-xl transition-colors"
+          >
+            {ratingLoading ? 'Saving...' : 'Save & finish'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (finished) {

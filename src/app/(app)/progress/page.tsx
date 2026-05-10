@@ -40,34 +40,34 @@ export default async function ProgressPage() {
 
   const kidsProgress = await Promise.all(
     (kids as Kid[]).map(async kid => {
-      const { data: logs } = await supabase
-        .from('session_logs')
-        .select('*, drill:drills(*)')
-        .eq('kid_id', kid.id)
-        .order('completed_at', { ascending: false })
+      const [{ data: logs }, { count: totalSessions }, { data: workoutSessionRows }] = await Promise.all([
+        supabase.from('session_logs').select('*, drill:drills(*)')
+          .eq('kid_id', kid.id).order('completed_at', { ascending: false }),
+        supabase.from('workout_sessions').select('*', { count: 'exact', head: true }).eq('kid_id', kid.id),
+        supabase.from('workout_sessions').select('completed_at').eq('kid_id', kid.id),
+      ])
 
       const sessions = (logs ?? []) as SessionLog[]
-      const totalSessions = sessions.length
 
-      // Skill coverage breakdown
+      // Skill coverage breakdown (from individual drill logs)
       const skillCounts: Record<string, number> = {}
       sessions.forEach(s => {
         const focus = s.drill?.skill_focus
         if (focus) skillCounts[focus] = (skillCounts[focus] ?? 0) + 1
       })
 
-      // Last 7 days activity
+      // Last 7 days activity (from workout sessions)
       const last7 = getLast7Days()
-      const sessionsByDay = new Set(
-        sessions.map(s => new Date(s.completed_at).toISOString().split('T')[0])
+      const activeDays = new Set(
+        (workoutSessionRows ?? []).map(s => new Date(s.completed_at).toISOString().split('T')[0])
       )
       const weekActivity = last7.map(day => ({
         day,
         label: new Date(day).toLocaleDateString('en-US', { weekday: 'short' }),
-        active: sessionsByDay.has(day),
+        active: activeDays.has(day),
       }))
 
-      return { kid, sessions, totalSessions, skillCounts, weekActivity }
+      return { kid, sessions, totalSessions: totalSessions ?? 0, skillCounts, weekActivity }
     })
   )
 

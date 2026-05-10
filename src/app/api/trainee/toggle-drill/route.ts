@@ -31,6 +31,9 @@ export async function POST(request: Request) {
 
   if (!kid) return Response.json({ error: 'Forbidden' }, { status: 403 })
 
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
   if (action === 'complete') {
     const { error } = await admin.from('session_logs').insert({
       kid_id: kid.id,
@@ -38,9 +41,24 @@ export async function POST(request: Request) {
       plan_id: planId,
     })
     if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    // Log a workout session when all drills are now complete
+    const [{ count: planDrillCount }, { count: completedCount }] = await Promise.all([
+      admin.from('plan_drills').select('*', { count: 'exact', head: true }).eq('plan_id', planId),
+      admin.from('session_logs').select('*', { count: 'exact', head: true })
+        .eq('plan_id', planId).eq('kid_id', kid.id).gte('completed_at', todayStart.toISOString()),
+    ])
+    if (planDrillCount && completedCount && completedCount >= planDrillCount) {
+      await admin.from('workout_sessions').insert({ kid_id: kid.id, plan_id: planId })
+    }
   } else if (action === 'uncomplete') {
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
+    // Check if the workout was fully complete before this uncomplete
+    const [{ count: planDrillCount }, { count: completedBefore }] = await Promise.all([
+      admin.from('plan_drills').select('*', { count: 'exact', head: true }).eq('plan_id', planId),
+      admin.from('session_logs').select('*', { count: 'exact', head: true })
+        .eq('plan_id', planId).eq('kid_id', kid.id).gte('completed_at', todayStart.toISOString()),
+    ])
+
     const { error } = await admin
       .from('session_logs')
       .delete()
@@ -49,6 +67,11 @@ export async function POST(request: Request) {
       .eq('drill_id', drillId)
       .gte('completed_at', todayStart.toISOString())
     if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    if (planDrillCount && completedBefore && completedBefore >= planDrillCount) {
+      await admin.from('workout_sessions').delete()
+        .eq('plan_id', planId).eq('kid_id', kid.id).gte('completed_at', todayStart.toISOString())
+    }
   } else {
     return Response.json({ error: 'action must be complete or uncomplete' }, { status: 400 })
   }

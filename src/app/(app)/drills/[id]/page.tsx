@@ -1,9 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import LogSessionButton from '@/components/drills/LogSessionButton'
 import { SPORT_EMOJI, SPORT_LABELS, LEVEL_COLORS, LEVEL_LABELS, AGE_RANGE_LABELS, formatDuration, cn } from '@/lib/utils'
-import type { Drill, Kid } from '@/types'
+import type { Drill } from '@/types'
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸'
@@ -20,15 +19,11 @@ export default async function DrillDetailPage({
 
   if (!user) redirect('/auth/login')
 
-  const [{ data: drill }, { data: kids }] = await Promise.all([
-    supabase.from('drills').select('*').eq('id', id).single(),
-    supabase.from('kids').select('*').eq('parent_id', user.id).order('created_at'),
-  ])
+  const { data: drill } = await supabase.from('drills').select('*').eq('id', id).single()
 
   if (!drill) notFound()
 
   const d = drill as Drill
-  const kidList = (kids ?? []) as Kid[]
   const isOwned = d.created_by === user.id
 
   return (
@@ -103,13 +98,6 @@ export default async function DrillDetailPage({
         </ol>
       </div>
 
-      {/* Log session */}
-      {kidList.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <h2 className="font-semibold text-slate-900 mb-4">Log this session</h2>
-          <LogSessionButton drillId={d.id} kids={kidList} />
-        </div>
-      )}
     </div>
   )
 }

@@ -2,17 +2,26 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import MonthlyCalendar from '@/components/workouts/MonthlyCalendar'
-import { SPORT_EMOJI, cn } from '@/lib/utils'
+import KidDropdown from '@/components/workouts/KidDropdown'
+import { cn } from '@/lib/utils'
 import type { Kid, TrainingPlan, PlanDrill, Drill } from '@/types'
 
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 type WorkoutWithDrills = TrainingPlan & { plan_drills: (PlanDrill & { drill: Drill })[] }
 
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function localDateStr(iso: string): string {
+  return toDateStr(new Date(iso))
+}
+
 export default async function WorkoutsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kid?: string; view?: string; month?: string }>
+  searchParams: Promise<{ kid?: string; view?: string; month?: string; week?: string }>
 }) {
   const params = await searchParams
   const supabase = await createClient()
@@ -41,10 +50,43 @@ export default async function WorkoutsPage({
 
   const view = params.view === 'month' ? 'month' : 'week'
 
-  // Parse month param (YYYY-MM), default to current month
   const now = new Date()
+  const todayStr = toDateStr(now)
+  const todayDay = now.getDay()
+
+  // --- Week navigation ---
+  const weekOffset = parseInt(params.week ?? '0') || 0
+  // Monday of the current real week
+  const daysFromMonday = todayDay === 0 ? -6 : 1 - todayDay
+  const weekMonday = new Date(now)
+  weekMonday.setHours(0, 0, 0, 0)
+  weekMonday.setDate(now.getDate() + daysFromMonday + weekOffset * 7)
+  const weekSunday = new Date(weekMonday)
+  weekSunday.setDate(weekMonday.getDate() + 6)
+  weekSunday.setHours(23, 59, 59, 999)
+  const weekMondayStr = toDateStr(weekMonday)
+  const weekSundayStr = toDateStr(weekSunday)
+
+  // Date string for a given JS day number within the displayed week
+  function dayDateStr(jsDay: number): string {
+    const offset = jsDay === 0 ? 6 : jsDay - 1
+    const d = new Date(weekMonday)
+    d.setDate(weekMonday.getDate() + offset)
+    return toDateStr(d)
+  }
+
+  // Week label e.g. "May 5 – 11" or "Apr 28 – May 4"
+  const fmtShort = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const weekLabel = weekMonday.getMonth() === weekSunday.getMonth()
+    ? `${fmtShort(weekMonday)} – ${weekSunday.getDate()}`
+    : `${fmtShort(weekMonday)} – ${fmtShort(weekSunday)}`
+
+  const prevWeekUrl = `/workouts?kid=${selectedKid.id}&view=week&week=${weekOffset - 1}`
+  const nextWeekUrl = `/workouts?kid=${selectedKid.id}&view=week&week=${weekOffset + 1}`
+
+  // --- Month navigation ---
   let calYear = now.getFullYear()
-  let calMonth = now.getMonth() // 0-indexed
+  let calMonth = now.getMonth()
 
   if (params.month) {
     const [y, m] = params.month.split('-').map(Number)
@@ -57,20 +99,15 @@ export default async function WorkoutsPage({
   const monthStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}`
   const kidParam = `kid=${selectedKid.id}`
 
-  // Prev/next month URLs
-  const prevDate = new Date(calYear, calMonth - 1, 1)
-  const nextDate = new Date(calYear, calMonth + 1, 1)
-  const prevMonthStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`
-  const nextMonthStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`
-  const prevUrl = `/workouts?${kidParam}&view=month&month=${prevMonthStr}`
-  const nextUrl = `/workouts?${kidParam}&view=month&month=${nextMonthStr}`
+  const prevMonthDate = new Date(calYear, calMonth - 1, 1)
+  const nextMonthDate = new Date(calYear, calMonth + 1, 1)
+  const prevUrl = `/workouts?${kidParam}&view=month&month=${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`
+  const nextUrl = `/workouts?${kidParam}&view=month&month=${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`
 
-  // Fetch session logs
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-
-  let sessionLogs: { plan_id: string | null; drill_id: string; completed_at: string }[] = []
-  let exceptions = new Set<string>() // "plan_id:YYYY-MM-DD"
+  // --- Fetch session logs ---
+  type LogRow = { plan_id: string | null; drill_id: string; completed_at: string }
+  let sessionLogs: LogRow[] = []
+  let exceptions = new Set<string>()
 
   if (view === 'week') {
     const { data } = await supabase
@@ -78,7 +115,8 @@ export default async function WorkoutsPage({
       .select('plan_id, drill_id, completed_at')
       .eq('kid_id', selectedKid.id)
       .not('plan_id', 'is', null)
-      .gte('completed_at', todayStart.toISOString())
+      .gte('completed_at', weekMonday.toISOString())
+      .lte('completed_at', weekSunday.toISOString())
     sessionLogs = data ?? []
   } else {
     const monthStart = new Date(calYear, calMonth, 1)
@@ -94,10 +132,7 @@ export default async function WorkoutsPage({
         .gte('completed_at', monthStart.toISOString())
         .lte('completed_at', monthEnd.toISOString()),
       planIds.length > 0
-        ? supabase
-            .from('plan_exceptions')
-            .select('plan_id, exception_date')
-            .in('plan_id', planIds)
+        ? supabase.from('plan_exceptions').select('plan_id, exception_date').in('plan_id', planIds)
         : Promise.resolve({ data: [] }),
     ])
 
@@ -105,22 +140,19 @@ export default async function WorkoutsPage({
     exceptions = new Set((exRows ?? []).map(e => `${e.plan_id}:${e.exception_date}`))
   }
 
-  const completedToday = new Set(
-    sessionLogs.map(c => `${c.plan_id}:${c.drill_id}`)
-  )
+  // Per-date completion map: "YYYY-MM-DD" → Set<"plan_id:drill_id">
+  const completedByDate = new Map<string, Set<string>>()
+  for (const log of sessionLogs) {
+    if (!log.plan_id) continue
+    const key = localDateStr(log.completed_at)
+    if (!completedByDate.has(key)) completedByDate.set(key, new Set())
+    completedByDate.get(key)!.add(`${log.plan_id}:${log.drill_id}`)
+  }
 
-  const todayDay = now.getDay()
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-
-  // Only show workouts active within the current week (started and not yet ended)
+  // Active workouts for the displayed week
   const activeWorkouts = workouts.filter(w => {
-    if (w.start_date > todayStr) {
-      // Allow upcoming workouts that start within the next 6 days (this week)
-      const startD = new Date(w.start_date)
-      const diffMs = startD.getTime() - now.getTime()
-      if (diffMs > 6 * 24 * 60 * 60 * 1000) return false
-    }
-    if (w.end_date && w.end_date < todayStr) return false
+    if (w.start_date > weekSundayStr) return false
+    if (w.end_date && w.end_date < weekMondayStr) return false
     return true
   })
 
@@ -135,13 +167,17 @@ export default async function WorkoutsPage({
     w => w.scheduled_day === null || w.scheduled_day === undefined
   )
 
-  // Workouts from other days that were fully completed today
-  const completedOtherDay = activeWorkouts.filter(w => {
+  // "Completed other day" only applies to the current week's today column
+  const isCurrentWeek = weekOffset === 0
+  const completedToday = isCurrentWeek
+    ? (completedByDate.get(todayStr) ?? new Set<string>())
+    : new Set<string>()
+  const completedOtherDay = isCurrentWeek ? activeWorkouts.filter(w => {
     if (w.scheduled_day === todayDay || w.scheduled_day === null || w.scheduled_day === undefined) return false
     const drills = w.plan_drills ?? []
     if (drills.length === 0) return false
     return drills.every(pd => completedToday.has(`${w.id}:${pd.drill_id}`))
-  })
+  }) : []
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
@@ -198,23 +234,12 @@ export default async function WorkoutsPage({
 
         {/* Kid selector */}
         {kidList.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto">
-            {kidList.map(kid => (
-              <Link
-                key={kid.id}
-                href={`/workouts?kid=${kid.id}&view=${view}${view === 'month' ? `&month=${monthStr}` : ''}`}
-                className={cn(
-                  'flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors border',
-                  selectedKid.id === kid.id
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                )}
-              >
-                <span>{SPORT_EMOJI[kid.sport]}</span>
-                {kid.name}
-              </Link>
-            ))}
-          </div>
+          <KidDropdown
+            kids={kidList}
+            selectedKidId={selectedKid.id}
+            view={view}
+            monthStr={monthStr}
+          />
         )}
       </div>
 
@@ -245,10 +270,29 @@ export default async function WorkoutsPage({
         />
       ) : (
         <>
+          {/* Week navigation */}
+          <div className="flex items-center justify-between">
+            <Link
+              href={prevWeekUrl}
+              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors text-sm font-medium"
+            >
+              ← Prev
+            </Link>
+            <span className="font-semibold text-slate-900 text-sm">{weekLabel}</span>
+            <Link
+              href={nextWeekUrl}
+              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors text-sm font-medium"
+            >
+              Next →
+            </Link>
+          </div>
+
           <div className="space-y-3">
             {[1, 2, 3, 4, 5, 6, 0].map(day => {
+              const dateStr = dayDateStr(day)
               const dayWorkouts = byDay[day] ?? []
-              const isToday = day === todayDay
+              const isToday = dateStr === todayStr
+              const completedOnDay = completedByDate.get(dateStr) ?? new Set<string>()
 
               return (
                 <div
@@ -272,6 +316,9 @@ export default async function WorkoutsPage({
                     >
                       {DAYS_FULL[day]}
                     </span>
+                    <span className={cn('text-xs', isToday ? 'text-blue-500' : 'text-slate-400')}>
+                      {new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
                     {isToday && (
                       <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
                         Today
@@ -285,7 +332,7 @@ export default async function WorkoutsPage({
                         (a, b) => a.display_order - b.display_order
                       )
                       const doneCount = drills.filter(pd =>
-                        completedToday.has(`${workout.id}:${pd.drill_id}`)
+                        completedOnDay.has(`${workout.id}:${pd.drill_id}`)
                       ).length
                       const total = drills.length
                       const allDone = total > 0 && doneCount === total
@@ -293,7 +340,7 @@ export default async function WorkoutsPage({
                       return (
                         <Link
                           key={workout.id}
-                          href={`/workouts/${workout.id}?${kidParam}`}
+                          href={`/workouts/${workout.id}?${kidParam}&date=${dateStr}`}
                           className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
                         >
                           <div
@@ -347,13 +394,15 @@ export default async function WorkoutsPage({
                         </Link>
                       )
                     })}
-                    <Link
-                      href={`/workouts/new?${kidParam}&day=${day}`}
-                      className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400 hover:text-blue-600 hover:bg-slate-50 transition-colors"
-                    >
-                      <span className="text-base leading-none">+</span>
-                      Add workout
-                    </Link>
+                    {dateStr >= todayStr && (
+                      <Link
+                        href={`/workouts/new?${kidParam}&day=${day}`}
+                        className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400 hover:text-blue-600 hover:bg-slate-50 transition-colors"
+                      >
+                        <span className="text-base leading-none">+</span>
+                        Add workout
+                      </Link>
+                    )}
                   </div>
                 </div>
               )

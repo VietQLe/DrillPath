@@ -3,11 +3,11 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
-import type { Kid, SessionLog, TrainingPlan, PlanDrill, Drill } from '@/types'
+import type { Kid, TrainingPlan, PlanDrill, Drill } from '@/types'
 
 async function getStreak(kidId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<number> {
   const { data } = await supabase
-    .from('session_logs')
+    .from('workout_sessions')
     .select('completed_at')
     .eq('kid_id', kidId)
     .order('completed_at', { ascending: false })
@@ -69,25 +69,19 @@ export default async function DashboardPage() {
     (kids as Kid[]).map(async kid => {
       const streak = await getStreak(kid.id, supabase)
 
-      const { count: totalSessions } = await supabase
-        .from('session_logs')
-        .select('*', { count: 'exact', head: true })
-        .eq('kid_id', kid.id)
-
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
-      const { count: weekSessions } = await supabase
-        .from('session_logs')
-        .select('*', { count: 'exact', head: true })
-        .eq('kid_id', kid.id)
-        .gte('completed_at', weekAgo.toISOString())
 
-      const { data: recentLogs } = await supabase
-        .from('session_logs')
-        .select('*, drill:drills(*)')
-        .eq('kid_id', kid.id)
-        .order('completed_at', { ascending: false })
-        .limit(3)
+      const [{ count: totalSessions }, { count: weekSessions }, { data: recentSessionRows }] = await Promise.all([
+        supabase.from('workout_sessions').select('*', { count: 'exact', head: true }).eq('kid_id', kid.id),
+        supabase.from('workout_sessions').select('*', { count: 'exact', head: true })
+          .eq('kid_id', kid.id).gte('completed_at', weekAgo.toISOString()),
+        supabase.from('workout_sessions').select('completed_at, plan:training_plans(name)')
+          .eq('kid_id', kid.id).order('completed_at', { ascending: false }).limit(3),
+      ])
+
+      type RecentSession = { completed_at: string; plan: { name: string } | { name: string }[] | null }
+      const recentSessions = (recentSessionRows ?? []) as RecentSession[]
 
       // Today's workout for this kid
       const { data: todayPlans } = await supabase
@@ -110,14 +104,12 @@ export default async function DashboardPage() {
         todayDoneCount = todayLogs?.length ?? 0
       }
 
-      console.log('kids ', kid)
-
       return {
         kid,
         streak,
         totalSessions: totalSessions ?? 0,
         weekSessions: weekSessions ?? 0,
-        recentLogs: (recentLogs ?? []) as SessionLog[],
+        recentSessions,
         todayWorkout,
         todayDoneCount,
       }
@@ -131,7 +123,7 @@ export default async function DashboardPage() {
         <p className="text-slate-500 text-sm">Here's how your athletes are doing.</p>
       </div>
 
-      {kidsWithStats.map(({ kid, streak, totalSessions, weekSessions, recentLogs, todayWorkout, todayDoneCount }) => (
+      {kidsWithStats.map(({ kid, streak, totalSessions, weekSessions, recentSessions, todayWorkout, todayDoneCount }) => (
         <div key={kid.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Kid header */}
           <div className="p-5 flex items-center gap-4">
@@ -209,27 +201,29 @@ export default async function DashboardPage() {
           )}
 
           {/* Recent activity */}
-          {recentLogs.length > 0 && (
+          {recentSessions.length > 0 && (
             <div className="border-t border-slate-100 p-5">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Recent Activity</h3>
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Recent Sessions</h3>
               <div className="space-y-2">
-                {recentLogs.map(log => (
-                  <div key={log.id} className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-sm">✓</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{log.drill?.title}</div>
-                      <div className="text-xs text-slate-400">
-                        {new Date(log.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        {log.rating && ` · ${'⭐'.repeat(log.rating)}`}
+                {recentSessions.map((s, i) => {
+                  const planName = Array.isArray(s.plan) ? s.plan[0]?.name : s.plan?.name
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-sm">✓</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-900 truncate">{planName ?? 'Workout'}</div>
+                        <div className="text-xs text-slate-400">
+                          {new Date(s.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
 
-          {recentLogs.length === 0 && !todayWorkout && (
+          {recentSessions.length === 0 && !todayWorkout && (
             <div className="border-t border-slate-100 p-5 text-center">
               <p className="text-slate-400 text-sm">No sessions yet.</p>
               <Link href={`/workouts/new?kid=${kid.id}`} className="text-blue-600 text-sm font-medium hover:underline">
