@@ -12,6 +12,9 @@ export interface Kid {
   skill_level: SkillLevel
   avatar_color: string
   trainee_user_id: string | null
+  weight: number | null
+  height: number | null
+  avatar_url: string | null
   created_at: string
 }
 

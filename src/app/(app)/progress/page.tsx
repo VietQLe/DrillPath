@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
 import type { Kid, SessionLog } from '@/types'
@@ -81,9 +82,15 @@ export default async function ProgressPage() {
         <div key={kid.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Kid header */}
           <div className="p-5 flex items-center gap-3 border-b border-slate-100">
-            <div className={cn('w-10 h-10 rounded-full flex items-center justify-center text-white font-bold', kid.avatar_color)}>
-              {kid.name[0]}
-            </div>
+            <Link href={`/kids/${kid.id}`} className="flex-shrink-0">
+              {kid.avatar_url ? (
+                <img src={kid.avatar_url} alt={kid.name} className="w-10 h-10 rounded-full object-cover" />
+              ) : (
+                <div className={cn('w-10 h-10 rounded-full flex items-center justify-center text-white font-bold', kid.avatar_color)}>
+                  {kid.name[0]}
+                </div>
+              )}
+            </Link>
             <div>
               <h2 className="font-bold text-slate-900">{kid.name} {SPORT_EMOJI[kid.sport as keyof typeof SPORT_EMOJI]}</h2>
               <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', LEVEL_COLORS[kid.skill_level as keyof typeof LEVEL_COLORS])}>

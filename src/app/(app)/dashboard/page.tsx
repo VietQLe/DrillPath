@@ -111,6 +111,8 @@ export default async function DashboardPage() {
         todayDoneCount = todayLogs?.length ?? 0
       }
 
+      console.log('kids ', kid)
+
       return {
         kid,
         streak,
@@ -134,9 +136,15 @@ export default async function DashboardPage() {
         <div key={kid.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Kid header */}
           <div className="p-5 flex items-center gap-4">
-            <div className={cn('w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold', kid.avatar_color)}>
-              {kid.name[0].toUpperCase()}
-            </div>
+            <Link href={`/kids/${kid.id}`} className="flex-shrink-0">
+              {kid.avatar_url ? (
+                <img src={kid.avatar_url} alt={kid.name} className="w-14 h-14 rounded-full object-cover" />
+              ) : (
+                <div className={cn('w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold', kid.avatar_color)}>
+                  {kid.name[0].toUpperCase()}
+                </div>
+              )}
+            </Link>
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900">{kid.name}</h2>

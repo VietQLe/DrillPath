@@ -298,8 +298,68 @@ create policy "Trainees can view their plan exceptions"
     )
   );
 
+-- =====================
+-- KID PROFILE FIELDS
+-- =====================
+
+alter table kids add column if not exists weight numeric;
+alter table kids add column if not exists height numeric;
+alter table kids add column if not exists avatar_url text;
+
+-- RLS: trainees can update their own weight/height/avatar_url
+create policy "Trainees can update their own profile"
+  on kids for update
+  using (trainee_user_id = auth.uid())
+  with check (trainee_user_id = auth.uid());
+
+-- Storage bucket for kid profile pictures
+insert into storage.buckets (id, name, public)
+values ('kid-avatars', 'kid-avatars', true)
+on conflict (id) do nothing;
+
+create policy "Public read kid avatars"
+  on storage.objects for select
+  using (bucket_id = 'kid-avatars');
+
+create policy "Parents manage kid avatars"
+  on storage.objects for all
+  using (
+    bucket_id = 'kid-avatars'
+    and auth.uid() in (
+      select parent_id from kids where id::text = split_part(name, '/', 1)
+    )
+  )
+  with check (
+    bucket_id = 'kid-avatars'
+    and auth.uid() in (
+      select parent_id from kids where id::text = split_part(name, '/', 1)
+    )
+  );
+
+create policy "Trainees manage own avatar"
+  on storage.objects for all
+  using (
+    bucket_id = 'kid-avatars'
+    and auth.uid() in (
+      select trainee_user_id from kids
+      where id::text = split_part(name, '/', 1)
+        and trainee_user_id is not null
+    )
+  )
+  with check (
+    bucket_id = 'kid-avatars'
+    and auth.uid() in (
+      select trainee_user_id from kids
+      where id::text = split_part(name, '/', 1)
+        and trainee_user_id is not null
+    )
+  );
+
 -- Migration shortcuts (run if altering an existing database):
 -- alter table kids add column if not exists trainee_user_id uuid references auth.users(id) on delete set null;
+-- alter table kids add column if not exists weight numeric;
+-- alter table kids add column if not exists height numeric;
+-- alter table kids add column if not exists avatar_url text;
 
 -- =====================
 -- SEED DATA: Drill Library

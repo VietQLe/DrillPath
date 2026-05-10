@@ -56,12 +56,18 @@ export default async function TraineeDashboard() {
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
       <div className="pt-2 flex items-center gap-4">
-        <div className={cn(
-          'w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold flex-shrink-0',
-          typedKid.avatar_color
-        )}>
-          {typedKid.name[0].toUpperCase()}
-        </div>
+        <Link href="/trainee/profile" className="flex-shrink-0">
+          {typedKid.avatar_url ? (
+            <img src={typedKid.avatar_url} alt={typedKid.name} className="w-14 h-14 rounded-full object-cover" />
+          ) : (
+            <div className={cn(
+              'w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold',
+              typedKid.avatar_color
+            )}>
+              {typedKid.name[0].toUpperCase()}
+            </div>
+          )}
+        </Link>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Hey, {typedKid.name}!</h1>
           <div className="flex items-center gap-2 mt-0.5">
