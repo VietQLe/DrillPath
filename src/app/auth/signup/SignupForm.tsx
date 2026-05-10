@@ -48,7 +48,7 @@ export default function SignupForm() {
           <div className="text-4xl mb-2">🏆</div>
 
           <h1 className="text-3xl font-bold text-slate-900">
-            DrillPath
+            CoachHQ
           </h1>
 
           <p className="text-slate-500 mt-1">

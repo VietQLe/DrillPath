@@ -43,7 +43,7 @@ export default function LoginForm() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="text-4xl mb-2">🏆</div>
-          <h1 className="text-3xl font-bold text-slate-900">DrillPath</h1>
+          <h1 className="text-3xl font-bold text-slate-900">CoachHQ</h1>
           <p className="text-slate-500 mt-1">Train your champion</p>
         </div>
 
