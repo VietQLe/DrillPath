@@ -170,6 +170,7 @@ export type WeeklyCalendarProps = {
   completedByDate: Record<string, string[]>
   isCurrentWeek: boolean
   todayJsDay: number
+  exceptions: string[]
 }
 
 type PendingDrag = { workout: WorkoutWithDrills; fromDateStr: string; newDay: number; toDateStr: string }
@@ -187,7 +188,9 @@ export default function WeeklyCalendar({
   completedByDate,
   isCurrentWeek,
   todayJsDay,
+  exceptions,
 }: WeeklyCalendarProps) {
+  const exceptionSet = new Set(exceptions)
   const router = useRouter()
   const [overrides, setOverrides] = useState<Record<string, number | null>>({})
   const [dragging, setDragging] = useState<WorkoutWithDrills | null>(null)
@@ -310,7 +313,7 @@ export default function WeeklyCalendar({
         <div className="space-y-3">
           {WEEK_ORDER.map(jsDay => {
             const dateStr = dayDateStr(jsDay, weekMondayStr)
-            const dayWorkouts = byDay[jsDay] ?? []
+            const dayWorkouts = (byDay[jsDay] ?? []).filter(w => !exceptionSet.has(`${w.id}:${dateStr}`))
             const isToday = dateStr === todayStr
             const done = completedSet(dateStr)
 

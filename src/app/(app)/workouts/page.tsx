@@ -100,14 +100,21 @@ export default async function WorkoutsPage({
   let exceptions = new Set<string>()
 
   if (view === 'week') {
-    const { data } = await supabase
-      .from('session_logs')
-      .select('plan_id, drill_id, completed_at')
-      .eq('kid_id', selectedKid.id)
-      .not('plan_id', 'is', null)
-      .gte('completed_at', weekMonday.toISOString())
-      .lte('completed_at', weekSunday.toISOString())
-    sessionLogs = data ?? []
+    const planIds = workouts.map(w => w.id)
+    const [{ data: logs }, { data: exRows }] = await Promise.all([
+      supabase
+        .from('session_logs')
+        .select('plan_id, drill_id, completed_at')
+        .eq('kid_id', selectedKid.id)
+        .not('plan_id', 'is', null)
+        .gte('completed_at', weekMonday.toISOString())
+        .lte('completed_at', weekSunday.toISOString()),
+      planIds.length > 0
+        ? supabase.from('plan_exceptions').select('plan_id, exception_date').in('plan_id', planIds)
+        : Promise.resolve({ data: [] }),
+    ])
+    sessionLogs = logs ?? []
+    exceptions = new Set((exRows ?? []).map(e => `${e.plan_id}:${e.exception_date}`))
   } else {
     const monthStart = new Date(calYear, calMonth, 1)
     const monthEnd = new Date(calYear, calMonth + 1, 0, 23, 59, 59, 999)
@@ -243,6 +250,7 @@ export default async function WorkoutsPage({
           completedByDate={completedByDate}
           isCurrentWeek={isCurrentWeek}
           todayJsDay={todayDay}
+          exceptions={[...exceptions]}
         />
       )}
     </div>
