@@ -142,6 +142,7 @@ export default async function WorkoutDetailPage({
           initialCompletedIds={[...completedDrillIds]}
           initialRating={sessionRow?.rating ?? null}
           initialNotes={sessionRow?.notes ?? null}
+          date={dateParam}
         />
       )}
 

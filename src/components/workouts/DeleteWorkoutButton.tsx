@@ -16,6 +16,13 @@ function dayBefore(dateStr: string) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
 
+function isBeforeToday(dateStr: string): boolean {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d) < today
+}
+
 export default function DeleteWorkoutButton({
   planId,
   date,
@@ -32,6 +39,14 @@ export default function DeleteWorkoutButton({
   const hasDate = !!date
   const monthParam = date ? `&month=${date.slice(0, 7)}` : ''
   const returnUrl = `/workouts?view=${hasDate ? 'month' : 'week'}&kid=${kidId}${monthParam}`
+
+  if (date && isBeforeToday(date)) {
+    return (
+      <p className="text-center text-sm text-slate-400 py-3">
+        Past sessions cannot be removed
+      </p>
+    )
+  }
 
   async function handleSkipDate() {
     if (!date) return

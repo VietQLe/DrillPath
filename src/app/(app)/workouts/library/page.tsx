@@ -31,6 +31,7 @@ export default async function WorkoutLibraryPage({
     supabase
       .from('workout_templates')
       .select('*, template_drills(*, drill:drills(*))')
+      .or(`created_by.is.null,created_by.eq.${user.id}`)
       .order('created_by', { nullsFirst: true })
       .order('sport')
       .order('difficulty')

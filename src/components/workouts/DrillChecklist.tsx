@@ -20,6 +20,7 @@ export default function DrillChecklist({
   initialCompletedIds,
   initialRating = null,
   initialNotes = null,
+  date,
 }: {
   planId: string
   kidId: string
@@ -27,6 +28,7 @@ export default function DrillChecklist({
   initialCompletedIds: string[]
   initialRating?: number | null
   initialNotes?: string | null
+  date?: string
 }) {
   const router = useRouter()
   const [completedIds, setCompletedIds] = useState(new Set(initialCompletedIds))
@@ -263,7 +265,7 @@ export default function DrillChecklist({
               </div>
 
               <Link
-                href={`/drills/${drill.id}`}
+                href={`/drills/${drill.id}?from=${encodeURIComponent(`/workouts/${planId}?kid=${kidId}${date ? `&date=${date}` : ''}`)}`}
                 className="text-slate-300 hover:text-blue-400 flex-shrink-0 mt-1 transition-colors text-lg leading-none"
                 title="View drill details"
               >

@@ -274,6 +274,29 @@ export default function WorkoutBuilder({
       return
     }
 
+    // Also save as a workout template so the trainer can reuse it for other athletes
+    const { data: template } = await supabase
+      .from('workout_templates')
+      .insert({
+        name: name.trim(),
+        focus: focus.trim() || null,
+        sport: selectedKid.sport,
+        difficulty: selectedKid.skill_level,
+        created_by: userId,
+      })
+      .select('id')
+      .single()
+
+    if (template) {
+      await supabase.from('template_drills').insert(
+        resolvedIds.map((drillId, i) => ({
+          template_id: template.id,
+          drill_id: drillId,
+          display_order: i,
+        }))
+      )
+    }
+
     router.push(`/workouts/${plan.id}?kid=${kidId}`)
     router.refresh()
   }
