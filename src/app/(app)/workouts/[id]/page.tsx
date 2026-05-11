@@ -153,7 +153,7 @@ export default async function WorkoutDetailPage({
         >
           Use again →
         </Link>
-        <DeleteWorkoutButton planId={id} date={dateParam} kidId={kid.id} />
+        <DeleteWorkoutButton planId={id} date={dateParam} kidId={kid.id} isCompleted={allDone} />
       </div>
     </div>
   )

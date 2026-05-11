@@ -27,10 +27,12 @@ export default function DeleteWorkoutButton({
   planId,
   date,
   kidId,
+  isCompleted,
 }: {
   planId: string
   date?: string   // YYYY-MM-DD — the specific calendar date the user came from
   kidId: string
+  isCompleted?: boolean
 }) {
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
@@ -44,6 +46,14 @@ export default function DeleteWorkoutButton({
     return (
       <p className="text-center text-sm text-slate-400 py-3">
         Past sessions cannot be removed
+      </p>
+    )
+  }
+
+  if (isCompleted) {
+    return (
+      <p className="text-center text-sm text-slate-400 py-3">
+        Completed sessions cannot be removed
       </p>
     )
   }

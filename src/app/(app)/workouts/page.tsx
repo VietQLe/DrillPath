@@ -2,11 +2,10 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import MonthlyCalendar from '@/components/workouts/MonthlyCalendar'
+import WeeklyCalendar from '@/components/workouts/WeeklyCalendar'
 import KidDropdown from '@/components/workouts/KidDropdown'
 import { cn } from '@/lib/utils'
 import type { Kid, TrainingPlan, PlanDrill, Drill } from '@/types'
-
-const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 type WorkoutWithDrills = TrainingPlan & { plan_drills: (PlanDrill & { drill: Drill })[] }
 
@@ -65,15 +64,6 @@ export default async function WorkoutsPage({
   weekSunday.setDate(weekMonday.getDate() + 6)
   weekSunday.setHours(23, 59, 59, 999)
   const weekMondayStr = toDateStr(weekMonday)
-  const weekSundayStr = toDateStr(weekSunday)
-
-  // Date string for a given JS day number within the displayed week
-  function dayDateStr(jsDay: number): string {
-    const offset = jsDay === 0 ? 6 : jsDay - 1
-    const d = new Date(weekMonday)
-    d.setDate(weekMonday.getDate() + offset)
-    return toDateStr(d)
-  }
 
   // Week label e.g. "May 5 – 11" or "Apr 28 – May 4"
   const fmtShort = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -140,44 +130,16 @@ export default async function WorkoutsPage({
     exceptions = new Set((exRows ?? []).map(e => `${e.plan_id}:${e.exception_date}`))
   }
 
-  // Per-date completion map: "YYYY-MM-DD" → Set<"plan_id:drill_id">
-  const completedByDate = new Map<string, Set<string>>()
+  // Per-date completion map serialized for client component
+  const completedByDate: Record<string, string[]> = {}
   for (const log of sessionLogs) {
     if (!log.plan_id) continue
     const key = localDateStr(log.completed_at)
-    if (!completedByDate.has(key)) completedByDate.set(key, new Set())
-    completedByDate.get(key)!.add(`${log.plan_id}:${log.drill_id}`)
+    if (!completedByDate[key]) completedByDate[key] = []
+    completedByDate[key].push(`${log.plan_id}:${log.drill_id}`)
   }
 
-  // Active workouts for the displayed week
-  const activeWorkouts = workouts.filter(w => {
-    if (w.start_date > weekSundayStr) return false
-    if (w.end_date && w.end_date < weekMondayStr) return false
-    return true
-  })
-
-  const byDay: Record<number, WorkoutWithDrills[]> = {}
-  activeWorkouts.forEach(w => {
-    if (w.scheduled_day !== null && w.scheduled_day !== undefined) {
-      if (!byDay[w.scheduled_day]) byDay[w.scheduled_day] = []
-      byDay[w.scheduled_day].push(w)
-    }
-  })
-  const unscheduled = activeWorkouts.filter(
-    w => w.scheduled_day === null || w.scheduled_day === undefined
-  )
-
-  // "Completed other day" only applies to the current week's today column
   const isCurrentWeek = weekOffset === 0
-  const completedToday = isCurrentWeek
-    ? (completedByDate.get(todayStr) ?? new Set<string>())
-    : new Set<string>()
-  const completedOtherDay = isCurrentWeek ? activeWorkouts.filter(w => {
-    if (w.scheduled_day === todayDay || w.scheduled_day === null || w.scheduled_day === undefined) return false
-    const drills = w.plan_drills ?? []
-    if (drills.length === 0) return false
-    return drills.every(pd => completedToday.has(`${w.id}:${pd.drill_id}`))
-  }) : []
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-5">
@@ -269,177 +231,19 @@ export default async function WorkoutsPage({
           nextUrl={nextUrl}
         />
       ) : (
-        <>
-          {/* Week navigation */}
-          <div className="flex items-center justify-between">
-            <Link
-              href={prevWeekUrl}
-              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors text-sm font-medium"
-            >
-              ← Prev
-            </Link>
-            <span className="font-semibold text-slate-900 text-sm">{weekLabel}</span>
-            <Link
-              href={nextWeekUrl}
-              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors text-sm font-medium"
-            >
-              Next →
-            </Link>
-          </div>
-
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5, 6, 0].map(day => {
-              const dateStr = dayDateStr(day)
-              const dayWorkouts = byDay[day] ?? []
-              const isToday = dateStr === todayStr
-              const completedOnDay = completedByDate.get(dateStr) ?? new Set<string>()
-
-              return (
-                <div
-                  key={day}
-                  className={cn(
-                    'rounded-2xl border overflow-hidden',
-                    isToday ? 'border-blue-300 shadow-sm' : 'border-slate-200'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'px-4 py-2.5 flex items-center gap-2',
-                      isToday ? 'bg-blue-50' : 'bg-slate-50'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'text-sm font-semibold',
-                        isToday ? 'text-blue-700' : 'text-slate-600'
-                      )}
-                    >
-                      {DAYS_FULL[day]}
-                    </span>
-                    <span className={cn('text-xs', isToday ? 'text-blue-500' : 'text-slate-400')}>
-                      {new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
-                    {isToday && (
-                      <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
-                        Today
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="bg-white divide-y divide-slate-100">
-                    {dayWorkouts.map(workout => {
-                      const drills = [...(workout.plan_drills ?? [])].sort(
-                        (a, b) => a.display_order - b.display_order
-                      )
-                      const doneCount = drills.filter(pd =>
-                        completedOnDay.has(`${workout.id}:${pd.drill_id}`)
-                      ).length
-                      const total = drills.length
-                      const allDone = total > 0 && doneCount === total
-
-                      return (
-                        <Link
-                          key={workout.id}
-                          href={`/workouts/${workout.id}?${kidParam}&date=${dateStr}`}
-                          className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
-                        >
-                          <div
-                            className={cn(
-                              'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold',
-                              allDone
-                                ? 'bg-green-500 text-white'
-                                : doneCount > 0
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-slate-100 text-slate-500'
-                            )}
-                          >
-                            {allDone ? '✓' : total > 0 ? `${doneCount}/${total}` : '—'}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-slate-900 text-sm">{workout.name}</div>
-                            {workout.focus && (
-                              <div className="text-xs text-slate-500 truncate mt-0.5">
-                                {workout.focus}
-                              </div>
-                            )}
-                            <div className="text-xs text-slate-400 mt-0.5">
-                              {total} drill{total !== 1 ? 's' : ''}
-                            </div>
-                          </div>
-                          <span className="text-slate-300 text-xl flex-shrink-0">→</span>
-                        </Link>
-                      )
-                    })}
-                    {isToday && completedOtherDay.map(workout => {
-                      const total = workout.plan_drills?.length ?? 0
-                      return (
-                        <Link
-                          key={`other-${workout.id}`}
-                          href={`/workouts/${workout.id}?${kidParam}`}
-                          className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
-                        >
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold bg-green-500 text-white">
-                            ✓
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-slate-900 text-sm">{workout.name}</div>
-                            <div className="text-xs text-green-600 mt-0.5">
-                              Completed · from {DAYS_FULL[workout.scheduled_day!]}
-                            </div>
-                            <div className="text-xs text-slate-400 mt-0.5">
-                              {total} drill{total !== 1 ? 's' : ''}
-                            </div>
-                          </div>
-                          <span className="text-slate-300 text-xl flex-shrink-0">→</span>
-                        </Link>
-                      )
-                    })}
-                    {dateStr >= todayStr && (
-                      <Link
-                        href={`/workouts/new?${kidParam}&day=${day}`}
-                        className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400 hover:text-blue-600 hover:bg-slate-50 transition-colors"
-                      >
-                        <span className="text-base leading-none">+</span>
-                        Add workout
-                      </Link>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {unscheduled.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                Unscheduled
-              </h2>
-              <div className="space-y-2">
-                {unscheduled.map(workout => {
-                  const total = workout.plan_drills?.length ?? 0
-                  return (
-                    <Link
-                      key={workout.id}
-                      href={`/workouts/${workout.id}?${kidParam}`}
-                      className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 px-4 py-3 hover:border-blue-300 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-slate-900 text-sm">{workout.name}</div>
-                        {workout.focus && (
-                          <div className="text-xs text-slate-500 mt-0.5">{workout.focus}</div>
-                        )}
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          {total} drill{total !== 1 ? 's' : ''}
-                        </div>
-                      </div>
-                      <span className="text-slate-300 text-xl flex-shrink-0">→</span>
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </>
+        <WeeklyCalendar
+          workouts={workouts}
+          kidId={selectedKid.id}
+          todayStr={todayStr}
+          weekOffset={weekOffset}
+          weekLabel={weekLabel}
+          weekMondayStr={weekMondayStr}
+          prevWeekUrl={prevWeekUrl}
+          nextWeekUrl={nextWeekUrl}
+          completedByDate={completedByDate}
+          isCurrentWeek={isCurrentWeek}
+          todayJsDay={todayDay}
+        />
       )}
     </div>
   )
