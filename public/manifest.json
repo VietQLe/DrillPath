@@ -1,6 +1,6 @@
 {
-  "name": "CoachHQ",
-  "short_name": "CoachHQ",
+  "name": "AssistantCoach",
+  "short_name": "AssistantCoach",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

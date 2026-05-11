@@ -59,7 +59,7 @@ export default function OnboardingPage() {
       <div className="w-full max-w-lg">
         <div className="text-center mb-8">
           <div className="text-4xl mb-2">🏆</div>
-          <h1 className="text-3xl font-bold text-slate-900">CoachHQ</h1>
+          <h1 className="text-3xl font-bold text-slate-900">AssistantCoach</h1>
           <p className="text-slate-400 text-sm mt-1">Step {step} of 3</p>
           <div className="flex gap-1.5 justify-center mt-3">
             {[1, 2, 3].map(s => (
