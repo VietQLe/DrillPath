@@ -146,7 +146,13 @@ export default async function WorkoutDetailPage({
         />
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 space-y-2">
+        <Link
+          href={`/workouts/new?copy=${id}&kid=${kid.id}`}
+          className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm"
+        >
+          Use again →
+        </Link>
         <DeleteWorkoutButton planId={id} date={dateParam} kidId={kid.id} />
       </div>
     </div>

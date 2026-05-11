@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import WorkoutBuilder from '@/components/workouts/WorkoutBuilder'
-import type { Kid, Drill, TemplateDrill, WorkoutTemplate } from '@/types'
+import type { Kid, Drill, TemplateDrill, WorkoutTemplate, TrainingPlan, PlanDrill } from '@/types'
 
 export default async function NewWorkoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kid?: string; day?: string; template?: string }>
+  searchParams: Promise<{ kid?: string; day?: string; template?: string; copy?: string }>
 }) {
   const params = await searchParams
   const supabase = await createClient()
@@ -41,6 +41,24 @@ export default async function NewWorkoutPage({
       defaultSelectedDrills = [...(t.template_drills ?? [])]
         .sort((a, b) => a.display_order - b.display_order)
         .map(td => td.drill)
+        .filter((d): d is Drill => !!d)
+    }
+  }
+
+  if (params.copy) {
+    const { data: plan } = await supabase
+      .from('training_plans')
+      .select('*, plan_drills(*, drill:drills(*))')
+      .eq('id', params.copy)
+      .single()
+
+    if (plan) {
+      const p = plan as TrainingPlan & { plan_drills: (PlanDrill & { drill: Drill })[] }
+      defaultName = p.name
+      defaultFocus = p.focus ?? undefined
+      defaultSelectedDrills = [...(p.plan_drills ?? [])]
+        .sort((a, b) => a.display_order - b.display_order)
+        .map(pd => pd.drill)
         .filter((d): d is Drill => !!d)
     }
   }

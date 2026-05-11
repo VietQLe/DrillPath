@@ -22,6 +22,15 @@ const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',
 }
 
+type SavedPlan = {
+  id: string
+  name: string
+  focus: string | null
+  kid_id: string
+  created_at: string
+  plan_drills: { display_order: number; drill: Drill }[]
+}
+
 type GeneratedDrill = {
   title: string
   description: string
@@ -80,6 +89,12 @@ export default function WorkoutBuilder({
   const [aiLoading, setAiLoading] = useState(false)
   const [aiPreview, setAiPreview] = useState<GeneratedWorkout | null>(null)
   const [aiError, setAiError] = useState('')
+
+  // Saved workouts picker state
+  const [savedMode, setSavedMode] = useState(false)
+  const [savedPlans, setSavedPlans] = useState<SavedPlan[] | null>(null)
+  const [savedLoading, setSavedLoading] = useState(false)
+  const [savedSearch, setSavedSearch] = useState('')
 
   const selectedKid = kids.find(k => k.id === kidId) ?? kids[0]
 
@@ -175,6 +190,40 @@ export default function WorkoutBuilder({
     setAiPreview(null)
     setAiPrompt('')
     setStep(1)
+  }
+
+  async function openSavedPicker() {
+    setSavedMode(true)
+    if (savedPlans !== null) return
+    setSavedLoading(true)
+    const supabase = createClient()
+    const kidIds = kids.map(k => k.id)
+    const { data } = await supabase
+      .from('training_plans')
+      .select('id, name, focus, kid_id, created_at, plan_drills(display_order, drill:drills(*))')
+      .in('kid_id', kidIds)
+      .order('created_at', { ascending: false })
+    setSavedPlans((data ?? []) as unknown as SavedPlan[])
+    setSavedLoading(false)
+  }
+
+  function useSavedPlan(plan: SavedPlan) {
+    const planDrills = [...plan.plan_drills]
+      .sort((a, b) => a.display_order - b.display_order)
+      .map(pd => pd.drill)
+      .filter((d): d is Drill => !!d)
+
+    // Prefer already-loaded drill objects; fall back to what the plan returned
+    const resolved = planDrills.map(d => localDrills.find(ld => ld.id === d.id) ?? d)
+
+    setLocalDrills(prev => {
+      const existingIds = new Set(prev.map(d => d.id))
+      return [...prev, ...resolved.filter(d => !existingIds.has(d.id))]
+    })
+    setName(plan.name)
+    setFocus(plan.focus ?? '')
+    setSelectedDrills(resolved)
+    setSavedMode(false)
   }
 
   function computeEndDate(): string | null {
@@ -299,6 +348,96 @@ export default function WorkoutBuilder({
 
     router.push(`/workouts/${plan.id}?kid=${kidId}`)
     router.refresh()
+  }
+
+  // Saved workouts picker panel
+  if (savedMode) {
+    const filtered = (savedPlans ?? []).filter(p =>
+      !savedSearch.trim() || p.name.toLowerCase().includes(savedSearch.toLowerCase())
+    )
+
+    return (
+      <div className="space-y-4">
+        <div className="pt-2 flex items-center gap-3">
+          <button
+            onClick={() => setSavedMode(false)}
+            className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+          >←</button>
+          <h1 className="text-2xl font-bold text-slate-900">My Saved Workouts</h1>
+        </div>
+
+        <input
+          value={savedSearch}
+          onChange={e => setSavedSearch(e.target.value)}
+          placeholder="Search workouts…"
+          className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+
+        {savedLoading && (
+          <div className="flex justify-center py-12">
+            <div className="w-8 h-8 rounded-full border-4 border-slate-200 border-t-blue-600 animate-spin" />
+          </div>
+        )}
+
+        {!savedLoading && filtered.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-4xl mb-3">📭</div>
+            <p className="text-slate-500 text-sm">
+              {savedSearch ? 'No workouts match your search.' : 'No saved workouts yet.'}
+            </p>
+          </div>
+        )}
+
+        {!savedLoading && filtered.length > 0 && (
+          <div className="space-y-2">
+            {filtered.map(plan => {
+              const planKid = kids.find(k => k.id === plan.kid_id)
+              const drillList = [...plan.plan_drills]
+                .sort((a, b) => a.display_order - b.display_order)
+                .map(pd => pd.drill)
+                .filter(Boolean) as Drill[]
+
+              return (
+                <button
+                  key={plan.id}
+                  onClick={() => useSavedPlan(plan)}
+                  className="w-full text-left p-4 rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="font-semibold text-slate-900 text-sm">{plan.name}</span>
+                    <span className="text-xs text-slate-400 flex-shrink-0">
+                      {drillList.length} drill{drillList.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {planKid && (
+                    <div className="text-xs text-slate-500 mb-2">
+                      {SPORT_EMOJI[planKid.sport]} {planKid.name}
+                    </div>
+                  )}
+                  {drillList.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {drillList.slice(0, 4).map(d => (
+                        <span
+                          key={d.id}
+                          className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full truncate max-w-[140px]"
+                        >
+                          {d.title}
+                        </span>
+                      ))}
+                      {drillList.length > 4 && (
+                        <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full">
+                          +{drillList.length - 4} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
   }
 
   // AI generation panel
@@ -607,6 +746,13 @@ export default function WorkoutBuilder({
               </p>
             </div>
           )}
+
+          <button
+            onClick={openSavedPicker}
+            className="w-full py-3 border-2 border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50 font-semibold rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+          >
+            📋 From saved workouts
+          </button>
 
           <div className="flex gap-3">
             <button
