@@ -1,6 +1,6 @@
 {
-  "name": "AssistantCoach",
-  "short_name": "AssistantCoach",
+  "name": "AIssistantCoach",
+  "short_name": "AIssistantCoach",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

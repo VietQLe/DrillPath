@@ -1,4 +1,4 @@
--- AssistantCoach Database Schema
+-- AIssistantCoach Database Schema
 
 -- Kids profiles (children of authenticated parents)
 create table if not exists kids (

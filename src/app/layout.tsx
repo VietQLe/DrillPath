@@ -5,14 +5,14 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AssistantCoach",
+  title: "AIssistantCoach",
   description: "Train your young athlete",
   manifest: "/manifest.json",
   themeColor: "#2563eb",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "AssistantCoach",
+    title: "AIssistantCoach",
   },
 };
 

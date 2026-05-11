@@ -16,7 +16,6 @@ import DrillForm from '@/components/drills/DrillForm'
 import type { Kid, Drill, SkillFocus, SkillLevel, AgeRange } from '@/types'
 
 const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',
@@ -73,7 +72,6 @@ export default function WorkoutBuilder({
   const [kidId, setKidId] = useState(defaultKidId ?? kids[0]?.id ?? '')
   const [name, setName] = useState(defaultName ?? '')
   const [focus, setFocus] = useState(defaultFocus ?? '')
-  const [day, setDay] = useState<number | null>(defaultDay ?? null)
   const [selectedDrills, setSelectedDrills] = useState<Drill[]>(defaultSelectedDrills ?? [])
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
@@ -82,6 +80,19 @@ export default function WorkoutBuilder({
   // Recurrence
   const [isRecurring, setIsRecurring] = useState(true)
   const [duration, setDuration] = useState<'4w' | '8w' | '3m' | '6m' | 'ongoing'>('ongoing')
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [startDate, setStartDate] = useState<string>(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (defaultDay !== undefined) {
+      const daysUntil = (defaultDay - today.getDay() + 7) % 7
+      const d = new Date(today)
+      d.setDate(today.getDate() + daysUntil)
+      return d.toISOString().slice(0, 10)
+    }
+    return today.toISOString().slice(0, 10)
+  })
+  const day = new Date(startDate + 'T12:00:00').getDay()
 
   // AI generation state
   const [aiMode, setAiMode] = useState(false)
@@ -89,6 +100,7 @@ export default function WorkoutBuilder({
   const [aiLoading, setAiLoading] = useState(false)
   const [aiPreview, setAiPreview] = useState<GeneratedWorkout | null>(null)
   const [aiError, setAiError] = useState('')
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
 
   // Saved workouts picker state
   const [savedMode, setSavedMode] = useState(false)
@@ -157,6 +169,41 @@ export default function WorkoutBuilder({
     }
   }
 
+  function removeAiDrill(index: number) {
+    setAiPreview(prev => prev ? { ...prev, drills: prev.drills.filter((_, i) => i !== index) } : prev)
+  }
+
+  async function regenerateAiDrill(index: number) {
+    if (!aiPreview || !selectedKid) return
+    setRegeneratingIndex(index)
+    try {
+      const res = await fetch('/api/regenerate-drill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sport: selectedKid.sport,
+          level: selectedKid.skill_level,
+          ageRange: getAgeRange(selectedKid.age),
+          workoutName: aiPreview.name,
+          workoutFocus: aiPreview.focus,
+          drillToReplace: aiPreview.drills[index],
+          otherDrills: aiPreview.drills.filter((_, i) => i !== index).map(d => d.title),
+        }),
+      })
+      if (res.ok) {
+        const newDrill = await res.json() as GeneratedDrill
+        setAiPreview(prev => {
+          if (!prev) return prev
+          const drills = [...prev.drills]
+          drills[index] = newDrill
+          return { ...prev, drills }
+        })
+      }
+    } finally {
+      setRegeneratingIndex(null)
+    }
+  }
+
   function useGeneratedWorkout() {
     if (!aiPreview || !selectedKid) return
 
@@ -207,7 +254,7 @@ export default function WorkoutBuilder({
     setSavedLoading(false)
   }
 
-  function useSavedPlan(plan: SavedPlan) {
+  function applySavedPlan(plan: SavedPlan) {
     const planDrills = [...plan.plan_drills]
       .sort((a, b) => a.display_order - b.display_order)
       .map(pd => pd.drill)
@@ -227,20 +274,20 @@ export default function WorkoutBuilder({
   }
 
   function computeEndDate(): string | null {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const base = new Date(sy, sm - 1, sd)
 
     if (!isRecurring && day !== null) {
-      // One-time: end on the first occurrence of the day on or after today
-      const daysUntil = (day - today.getDay() + 7) % 7
-      const firstOcc = new Date(today)
-      firstOcc.setDate(firstOcc.getDate() + daysUntil)
+      // One-time: end on the first occurrence of the day on or after startDate
+      const daysUntil = (day - base.getDay() + 7) % 7
+      const firstOcc = new Date(base)
+      firstOcc.setDate(base.getDate() + daysUntil)
       return firstOcc.toISOString().slice(0, 10)
     }
 
     if (duration === 'ongoing') return null
 
-    const end = new Date(today)
+    const end = new Date(base)
     if (duration === '4w') end.setDate(end.getDate() + 28)
     else if (duration === '8w') end.setDate(end.getDate() + 56)
     else if (duration === '3m') end.setMonth(end.getMonth() + 3)
@@ -253,9 +300,6 @@ export default function WorkoutBuilder({
     setSaving(true)
     setError('')
     const supabase = createClient()
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const startDate = today.toISOString().slice(0, 10)
     const endDate = day !== null ? computeEndDate() : null
 
     // Insert any AI-generated drills first to get real DB IDs
@@ -400,7 +444,7 @@ export default function WorkoutBuilder({
               return (
                 <button
                   key={plan.id}
-                  onClick={() => useSavedPlan(plan)}
+                  onClick={() => applySavedPlan(plan)}
                   className="w-full text-left p-4 rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1">
@@ -515,37 +559,68 @@ export default function WorkoutBuilder({
 
             <div className="space-y-2">
               {aiPreview.drills.map((drill, i) => (
-                <div key={i} className="bg-white border border-slate-200 rounded-xl p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-violet-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
-                      {i + 1}
+                <div
+                  key={i}
+                  className={cn(
+                    'border rounded-xl p-4 transition-colors',
+                    regeneratingIndex === i ? 'border-violet-300 bg-violet-50' : 'bg-white border-slate-200'
+                  )}
+                >
+                  {regeneratingIndex === i ? (
+                    <div className="flex items-center justify-center gap-3 py-3">
+                      <div className="w-5 h-5 rounded-full border-2 border-violet-200 border-t-violet-600 animate-spin flex-shrink-0" />
+                      <span className="text-sm text-violet-600 font-medium">Regenerating drill…</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-slate-900 text-sm">{drill.title}</div>
-                      <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{drill.description}</p>
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', LEVEL_COLORS[drill.difficulty])}>
-                          {LEVEL_LABELS[drill.difficulty]}
-                        </span>
-                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                          {SKILL_FOCUS_EMOJI[drill.skill_focus]} {drill.skill_focus}
-                        </span>
-                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                          ⏱ {formatDuration(drill.duration_minutes)}
-                        </span>
+                  ) : (
+                    <div className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-full bg-violet-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+                        {i + 1}
                       </div>
-                      {drill.instructions.length > 0 && (
-                        <ol className="mt-2 space-y-0.5">
-                          {drill.instructions.map((step, j) => (
-                            <li key={j} className="text-xs text-slate-500 flex gap-1.5">
-                              <span className="text-slate-300 flex-shrink-0">{j + 1}.</span>
-                              {step}
-                            </li>
-                          ))}
-                        </ol>
-                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-slate-900 text-sm">{drill.title}</div>
+                        <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{drill.description}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', LEVEL_COLORS[drill.difficulty])}>
+                            {LEVEL_LABELS[drill.difficulty]}
+                          </span>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                            {SKILL_FOCUS_EMOJI[drill.skill_focus]} {drill.skill_focus}
+                          </span>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                            ⏱ {formatDuration(drill.duration_minutes)}
+                          </span>
+                        </div>
+                        {drill.instructions.length > 0 && (
+                          <ol className="mt-2 space-y-0.5">
+                            {drill.instructions.map((step, j) => (
+                              <li key={j} className="text-xs text-slate-500 flex gap-1.5">
+                                <span className="text-slate-300 flex-shrink-0">{j + 1}.</span>
+                                {step}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-0.5 flex-shrink-0">
+                        <button
+                          onClick={() => regenerateAiDrill(i)}
+                          disabled={regeneratingIndex !== null}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-100 transition-colors disabled:opacity-40"
+                          title="Regenerate this drill"
+                        >
+                          ↺
+                        </button>
+                        <button
+                          onClick={() => removeAiDrill(i)}
+                          disabled={regeneratingIndex !== null}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                          title="Remove this drill"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -559,7 +634,8 @@ export default function WorkoutBuilder({
               </button>
               <button
                 onClick={useGeneratedWorkout}
-                className="flex-[2] py-3 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-xl transition-colors text-sm"
+                disabled={aiPreview.drills.length === 0 || regeneratingIndex !== null}
+                className="flex-[2] py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-xl transition-colors text-sm"
               >
                 Use this workout →
               </button>
@@ -655,31 +731,22 @@ export default function WorkoutBuilder({
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Day of week</label>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5, 6, 0].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setDay(day === d ? null : d)}
-                  className={cn(
-                    'flex-1 py-2.5 rounded-xl text-xs font-semibold transition-colors',
-                    day === d
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  )}
-                >
-                  {DAYS_SHORT[d]}
-                </button>
-              ))}
-            </div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Start date</label>
+            <input
+              type="date"
+              value={startDate}
+              min={todayStr}
+              onChange={e => setStartDate(e.target.value || todayStr)}
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             {day !== null && (
-              <p className="text-xs text-slate-500 mt-1.5">Scheduled for {DAYS_FULL[day]}</p>
+              <p className="text-xs text-slate-500 mt-1.5">Repeats every {DAYS_FULL[day]}</p>
             )}
           </div>
 
-          {day !== null && (
-            <div className="bg-slate-50 rounded-xl p-4 space-y-3">
+          <div className="bg-slate-50 rounded-xl p-4 space-y-3">
               <label className="block text-sm font-semibold text-slate-700">Recurrence</label>
+
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsRecurring(false)}
@@ -733,19 +800,20 @@ export default function WorkoutBuilder({
                 </div>
               )}
 
-              <p className="text-xs text-slate-400">
-                {!isRecurring
-                  ? `Appears once on the upcoming ${DAYS_FULL[day]}`
-                  : duration === 'ongoing'
-                  ? `Repeats every ${DAYS_FULL[day]} with no end date`
-                  : `Repeats every ${DAYS_FULL[day]} for ${
-                      duration === '4w' ? '4 weeks' :
-                      duration === '8w' ? '8 weeks' :
-                      duration === '3m' ? '3 months' : '6 months'
-                    }`}
-              </p>
+              {day !== null && startDate && (
+                <p className="text-xs text-slate-400">
+                  {!isRecurring
+                    ? `Appears once on ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'long' })}`
+                    : duration === 'ongoing'
+                    ? `Repeats every ${DAYS_FULL[day]} starting ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : `Repeats every ${DAYS_FULL[day]} for ${
+                        duration === '4w' ? '4 weeks' :
+                        duration === '8w' ? '8 weeks' :
+                        duration === '3m' ? '3 months' : '6 months'
+                      } from ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                </p>
+              )}
             </div>
-          )}
 
           <button
             onClick={openSavedPicker}
