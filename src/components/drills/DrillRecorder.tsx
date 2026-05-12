@@ -27,6 +27,7 @@ export default function DrillRecorder({
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   const liveVideoRef = useRef<HTMLVideoElement>(null)
   const reviewVideoRef = useRef<HTMLVideoElement>(null)
@@ -192,6 +193,17 @@ export default function DrillRecorder({
     close()
   }
 
+  async function deleteRecording(id: string, videoUrl: string) {
+    setPendingDeleteId(null)
+    setRecordings((prev) => prev.filter((r) => r.id !== id))
+    setSignedUrls((prev) => { const next = { ...prev }; delete next[id]; return next })
+    const supabase = createClient()
+    await Promise.all([
+      supabase.storage.from('drill-recordings').remove([videoUrl]),
+      supabase.from('drill_recordings').delete().eq('id', id),
+    ])
+  }
+
   const inModal = recordState !== 'idle'
 
   return (
@@ -204,7 +216,7 @@ export default function DrillRecorder({
           </h2>
           <div className="space-y-3">
             {recordings.map((rec) => (
-              <div key={rec.id} className="rounded-xl overflow-hidden bg-slate-100 aspect-video">
+              <div key={rec.id} className="rounded-xl overflow-hidden bg-slate-100 aspect-video relative">
                 {signedUrls[rec.id] ? (
                   <video
                     src={signedUrls[rec.id]}
@@ -215,6 +227,35 @@ export default function DrillRecorder({
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
                     Loading…
+                  </div>
+                )}
+                {pendingDeleteId !== rec.id ? (
+                  <button
+                    onClick={() => setPendingDeleteId(rec.id)}
+                    className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
+                    aria-label="Delete recording"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                ) : (
+                  <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
+                    <p className="text-white text-sm font-semibold">Delete this recording?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPendingDeleteId(null)}
+                        className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-sm transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => deleteRecording(rec.id, rec.video_url)}
+                        className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
