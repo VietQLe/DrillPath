@@ -2,7 +2,8 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { SPORT_EMOJI, SPORT_LABELS, LEVEL_COLORS, LEVEL_LABELS, AGE_RANGE_LABELS, formatDuration, cn } from '@/lib/utils'
-import type { Drill } from '@/types'
+import type { Drill, DrillRecording } from '@/types'
+import DrillRecorder from '@/components/drills/DrillRecorder'
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸'
@@ -29,6 +30,25 @@ export default async function DrillDetailPage({
 
   const d = drill as Drill
   const isOwned = d.created_by === user.id
+
+  // Extract workout context from backUrl (/workouts/{planId}?kid={kidId})
+  let planId: string | null = null
+  let kidId: string | null = null
+  if (backUrl) {
+    const match = backUrl.match(/\/workouts\/([a-f0-9-]+)/i)
+    if (match) planId = match[1]
+    try {
+      kidId = new URL(backUrl, 'http://x').searchParams.get('kid')
+    } catch { /* ignore */ }
+  }
+
+  // Fetch all recordings for this drill visible to the current user (RLS scopes to their kids)
+  const { data: recordingData } = await supabase
+    .from('drill_recordings')
+    .select('*')
+    .eq('drill_id', id)
+    .order('recorded_at', { ascending: false })
+  const recordings = (recordingData ?? []) as DrillRecording[]
 
   return (
     <div className={`max-w-2xl mx-auto p-4 ${backUrl ? 'pb-24' : 'pb-8'}`}>
@@ -110,6 +130,15 @@ export default async function DrillDetailPage({
           ))}
         </ol>
       </div>
+
+      {(recordings.length > 0 || (planId && kidId)) && (
+        <DrillRecorder
+          drillId={d.id}
+          planId={planId}
+          kidId={kidId}
+          initialRecordings={recordings}
+        />
+      )}
 
       {backUrl && (
         <Link

@@ -94,3 +94,12 @@ export interface TemplateDrill {
   display_order: number
   drill?: Drill
 }
+
+export interface DrillRecording {
+  id: string
+  kid_id: string
+  drill_id: string
+  plan_id: string | null
+  video_url: string  // storage path: {kid_id}/{drill_id}/{uuid}.webm|mp4
+  recorded_at: string
+}
