@@ -1,11 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { LEVEL_COLORS, LEVEL_LABELS, formatDuration, cn } from '@/lib/utils'
 import type { PlanDrill, Drill } from '@/types'
+
+type DrillGroup = {
+  drillId: string
+  title: string
+  recs: { id: string; video_url: string }[]
+}
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',
@@ -40,6 +46,55 @@ export default function DrillChecklist({
   const [ratingLoading, setRatingLoading] = useState(false)
   const [savedRating, setSavedRating] = useState<number | null>(initialRating)
   const [savedNotes, setSavedNotes] = useState<string | null>(initialNotes)
+  const [drillGroups, setDrillGroups] = useState<DrillGroup[]>([])
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!finished) return
+    let cancelled = false
+    async function loadRecordings() {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('drill_recordings')
+        .select('id, video_url, drill_id, drill:drills(title)')
+        .eq('plan_id', planId)
+        .eq('kid_id', kidId)
+        .order('recorded_at', { ascending: false })
+
+      if (cancelled || !data || data.length === 0) return
+
+      // Group by drill, preserving workout order
+      const drillOrder = drills.map((pd) => pd.drill_id)
+      const grouped = new Map<string, DrillGroup>()
+      for (const rec of data) {
+        const drillData = rec.drill as unknown as { title: string } | null
+        const title = drillData?.title ?? 'Unknown drill'
+        if (!grouped.has(rec.drill_id)) {
+          grouped.set(rec.drill_id, { drillId: rec.drill_id, title, recs: [] })
+        }
+        grouped.get(rec.drill_id)!.recs.push({ id: rec.id, video_url: rec.video_url })
+      }
+      const sorted = drillOrder.filter((id) => grouped.has(id)).map((id) => grouped.get(id)!)
+      if (!cancelled) setDrillGroups(sorted)
+
+      // Generate signed URLs in parallel
+      const urlEntries = await Promise.all(
+        data.map(async (rec) => {
+          const { data: signed } = await supabase.storage
+            .from('drill-recordings')
+            .createSignedUrl(rec.video_url, 3600)
+          return signed ? ([rec.id, signed.signedUrl] as const) : null
+        })
+      )
+      if (!cancelled) {
+        const urls: Record<string, string> = {}
+        for (const entry of urlEntries) { if (entry) urls[entry[0]] = entry[1] }
+        setSignedUrls(urls)
+      }
+    }
+    loadRecordings()
+    return () => { cancelled = true }
+  }, [finished])
 
   async function toggleDrill(drillId: string) {
     if (loading) return
@@ -185,6 +240,36 @@ export default function DrillChecklist({
             {savedNotes && (
               <p className="text-sm text-slate-600 italic">"{savedNotes}"</p>
             )}
+          </div>
+        )}
+        {drillGroups.length > 0 && (
+          <div className="border-t border-green-100 px-5 py-4">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">Recordings</p>
+            <div className="space-y-5">
+              {drillGroups.map((group) => (
+                <div key={group.drillId}>
+                  <p className="text-xs font-semibold text-slate-500 mb-2">{group.title}</p>
+                  <div className="space-y-2">
+                    {group.recs.map((rec) => (
+                      <div key={rec.id} className="rounded-xl overflow-hidden bg-slate-100 aspect-video">
+                        {signedUrls[rec.id] ? (
+                          <video
+                            src={signedUrls[rec.id]}
+                            controls
+                            playsInline
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
+                            Loading…
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         <div className="border-t border-green-100 p-5">

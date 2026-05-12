@@ -26,6 +26,7 @@ export default function DrillRecorder({
   const [recordState, setRecordState] = useState<RecordState>('idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
 
   const liveVideoRef = useRef<HTMLVideoElement>(null)
   const reviewVideoRef = useRef<HTMLVideoElement>(null)
@@ -68,12 +69,13 @@ export default function DrillRecorder({
     }
   }, [])
 
-  async function openCamera() {
+  async function openCamera(facing: 'environment' | 'user' = facingMode) {
+    stopStream()
     setError(null)
     setRecordState('setup')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true,
       })
       streamRef.current = stream
@@ -85,6 +87,12 @@ export default function DrillRecorder({
       setError('Camera access denied. Please allow camera permissions.')
       setRecordState('idle')
     }
+  }
+
+  async function flipCamera() {
+    const next = facingMode === 'environment' ? 'user' : 'environment'
+    setFacingMode(next)
+    await openCamera(next)
   }
 
   function startRecording() {
@@ -160,11 +168,17 @@ export default function DrillRecorder({
       return
     }
 
-    const { data: row } = await supabase
+    const { data: row, error: insertErr } = await supabase
       .from('drill_recordings')
       .insert({ kid_id: kidId, drill_id: drillId, plan_id: planId, video_url: path })
       .select()
       .single()
+
+    if (insertErr) {
+      setError('Failed to save recording. Please try again.')
+      setRecordState('review')
+      return
+    }
 
     if (row) {
       const { data: signed } = await supabase.storage
@@ -218,7 +232,7 @@ export default function DrillRecorder({
           </p>
           {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
           <button
-            onClick={openCamera}
+            onClick={() => openCamera()}
             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors"
           >
             <span>●</span> Start recording
@@ -273,16 +287,28 @@ export default function DrillRecorder({
 
           {/* Controls */}
           <div className="p-6 pb-10 flex flex-col items-center gap-3">
-            {/* Setup: tap to record */}
+            {/* Setup: flip + record */}
             {recordState === 'setup' && (
               <>
-                <button
-                  onClick={startRecording}
-                  className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
-                  aria-label="Start recording"
-                >
-                  <span className="w-6 h-6 rounded-full bg-white" />
-                </button>
+                <div className="flex items-center gap-8">
+                  <button
+                    onClick={flipCamera}
+                    className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                    aria-label="Flip camera"
+                  >
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={startRecording}
+                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
+                    aria-label="Start recording"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-white" />
+                  </button>
+                  <div className="w-11 h-11" />
+                </div>
                 <p className="text-white/60 text-sm">Tap to start recording</p>
               </>
             )}
