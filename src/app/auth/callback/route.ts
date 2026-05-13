@@ -12,7 +12,9 @@ export async function GET(request: Request) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     }
+    const msg = encodeURIComponent(error.message)
+    return NextResponse.redirect(`${origin}/auth/login?error=${msg}`)
   }
 
-  return NextResponse.redirect(`${origin}/auth/login?error=oauth_error`)
+  return NextResponse.redirect(`${origin}/auth/login?error=${encodeURIComponent('OAuth sign-in failed. Please try again.')}`)
 }
