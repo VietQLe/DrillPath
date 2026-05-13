@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
+import TodayWorkout from './TodayWorkout'
 import type { Kid, TrainingPlan, PlanDrill, Drill } from '@/types'
 
 async function getStreak(kidId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<number> {
@@ -61,10 +62,6 @@ export default async function DashboardPage() {
     redirect('/onboarding')
   }
 
-  const todayDay = new Date().getDay()
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-
   const kidsWithStats = await Promise.all(
     (kids as Kid[]).map(async kid => {
       const streak = await getStreak(kid.id, supabase)
@@ -72,37 +69,18 @@ export default async function DashboardPage() {
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
 
-      const [{ count: totalSessions }, { count: weekSessions }, { data: recentSessionRows }] = await Promise.all([
+      const [{ count: totalSessions }, { count: weekSessions }, { data: recentSessionRows }, { data: allPlans }] = await Promise.all([
         supabase.from('workout_sessions').select('*', { count: 'exact', head: true }).eq('kid_id', kid.id),
         supabase.from('workout_sessions').select('*', { count: 'exact', head: true })
           .eq('kid_id', kid.id).gte('completed_at', weekAgo.toISOString()),
         supabase.from('workout_sessions').select('completed_at, plan:training_plans(name)')
           .eq('kid_id', kid.id).order('completed_at', { ascending: false }).limit(3),
+        supabase.from('training_plans').select('*, plan_drills(*, drill:drills(*))').eq('kid_id', kid.id),
       ])
 
       type RecentSession = { completed_at: string; plan: { name: string } | { name: string }[] | null }
       const recentSessions = (recentSessionRows ?? []) as RecentSession[]
-
-      // Today's workout for this kid
-      const { data: todayPlans } = await supabase
-        .from('training_plans')
-        .select('*, plan_drills(*, drill:drills(*))')
-        .eq('kid_id', kid.id)
-        .eq('scheduled_day', todayDay)
-        .limit(1)
-
-      const todayWorkout = todayPlans?.[0] as (TrainingPlan & { plan_drills: (PlanDrill & { drill: Drill })[] }) | null
-
-      let todayDoneCount = 0
-      if (todayWorkout) {
-        const { data: todayLogs } = await supabase
-          .from('session_logs')
-          .select('drill_id')
-          .eq('plan_id', todayWorkout.id)
-          .eq('kid_id', kid.id)
-          .gte('completed_at', todayStart.toISOString())
-        todayDoneCount = todayLogs?.length ?? 0
-      }
+      const plans = (allPlans ?? []) as (TrainingPlan & { plan_drills: (PlanDrill & { drill: Drill })[] })[]
 
       return {
         kid,
@@ -110,8 +88,7 @@ export default async function DashboardPage() {
         totalSessions: totalSessions ?? 0,
         weekSessions: weekSessions ?? 0,
         recentSessions,
-        todayWorkout,
-        todayDoneCount,
+        plans,
       }
     })
   )
@@ -123,7 +100,7 @@ export default async function DashboardPage() {
         <p className="text-slate-500 text-sm">Here's how your athletes are doing.</p>
       </div>
 
-      {kidsWithStats.map(({ kid, streak, totalSessions, weekSessions, recentSessions, todayWorkout, todayDoneCount }) => (
+      {kidsWithStats.map(({ kid, streak, totalSessions, weekSessions, recentSessions, plans }) => (
         <div key={kid.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Kid header */}
           <div className="p-5 flex items-center gap-4">
@@ -169,36 +146,8 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          {/* Today's workout */}
-          {todayWorkout && (
-            <div className="border-t border-slate-100 p-5">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Today&apos;s Workout</h3>
-              <Link
-                href={`/workouts/${todayWorkout.id}?kid=${kid.id}`}
-                className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3 hover:border-blue-400 transition-colors"
-              >
-                <div className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0',
-                  todayDoneCount === todayWorkout.plan_drills?.length && (todayWorkout.plan_drills?.length ?? 0) > 0
-                    ? 'bg-green-500 text-white'
-                    : todayDoneCount > 0
-                    ? 'bg-blue-200 text-blue-800'
-                    : 'bg-white text-blue-600 border-2 border-blue-300'
-                )}>
-                  {todayDoneCount === todayWorkout.plan_drills?.length && (todayWorkout.plan_drills?.length ?? 0) > 0
-                    ? '✓'
-                    : `${todayDoneCount}/${todayWorkout.plan_drills?.length ?? 0}`}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-900 text-sm">{todayWorkout.name}</div>
-                  {todayWorkout.focus && (
-                    <div className="text-xs text-slate-500 truncate mt-0.5">{todayWorkout.focus}</div>
-                  )}
-                </div>
-                <span className="text-blue-400 text-lg flex-shrink-0">→</span>
-              </Link>
-            </div>
-          )}
+          {/* Today's workout — computed client-side to use browser timezone */}
+          <TodayWorkout plans={plans} kidId={kid.id} />
 
           {/* Recent activity */}
           {recentSessions.length > 0 && (
@@ -223,7 +172,7 @@ export default async function DashboardPage() {
             </div>
           )}
 
-          {recentSessions.length === 0 && !todayWorkout && (
+          {recentSessions.length === 0 && (
             <div className="border-t border-slate-100 p-5 text-center">
               <p className="text-slate-400 text-sm">No sessions yet.</p>
               <Link href={`/workouts/new?kid=${kid.id}`} className="text-blue-600 text-sm font-medium hover:underline">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -176,10 +176,15 @@ export type WeeklyCalendarProps = {
 type PendingDrag = { workout: WorkoutWithDrills; fromDateStr: string; newDay: number; toDateStr: string }
 type RescheduleTarget = { workout: WorkoutWithDrills; dateStr: string }
 
+function localDateStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function WeeklyCalendar({
   workouts,
   kidId,
-  todayStr,
+  todayStr: serverTodayStr,
   weekOffset,
   weekLabel,
   weekMondayStr,
@@ -187,7 +192,7 @@ export default function WeeklyCalendar({
   nextWeekUrl,
   completedByDate,
   isCurrentWeek,
-  todayJsDay,
+  todayJsDay: serverTodayJsDay,
   exceptions,
 }: WeeklyCalendarProps) {
   const exceptionSet = new Set(exceptions)
@@ -196,6 +201,14 @@ export default function WeeklyCalendar({
   const [dragging, setDragging] = useState<WorkoutWithDrills | null>(null)
   const [pendingDrag, setPendingDrag] = useState<PendingDrag | null>(null)
   const [rescheduleTarget, setRescheduleTarget] = useState<RescheduleTarget | null>(null)
+  // Override server-computed "today" with browser local date to fix UTC timezone mismatch
+  const [todayStr, setTodayStr] = useState(serverTodayStr)
+  const [todayJsDay, setTodayJsDay] = useState(serverTodayJsDay)
+  useEffect(() => {
+    const local = localDateStr()
+    setTodayStr(local)
+    setTodayJsDay(new Date().getDay())
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
