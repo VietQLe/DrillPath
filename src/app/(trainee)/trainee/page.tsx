@@ -1,13 +1,10 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
 import type { Kid, TrainingPlan, PlanDrill, Drill } from '@/types'
-
-// Rendered client-only so new Date() uses browser local timezone, not server UTC.
-const TraineeTodayWorkouts = dynamic(() => import('./TraineeTodayWorkoutsClient'), { ssr: false })
+import TraineeTodayWorkouts from './TraineeTodayWorkoutsNoSSR'
 
 export default async function TraineeDashboard() {
   const supabase = await createClient()
