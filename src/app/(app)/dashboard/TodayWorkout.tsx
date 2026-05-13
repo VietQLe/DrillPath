@@ -8,18 +8,24 @@ import type { TrainingPlan, PlanDrill, Drill } from '@/types'
 
 type WorkoutWithDrills = TrainingPlan & { plan_drills: (PlanDrill & { drill: Drill })[] }
 
+// Rendered client-only (via dynamic import with ssr:false in dashboard/page.tsx)
+// so new Date().getDay() always reflects browser local timezone.
 export default function TodayWorkout({ plans, kidId }: { plans: WorkoutWithDrills[]; kidId: string }) {
-  const [todayWorkout, setTodayWorkout] = useState<WorkoutWithDrills | null>(null)
+  const now = new Date()
+  const todayDay = now.getDay()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+  const todayWorkout = plans.find(p =>
+    p.scheduled_day === todayDay &&
+    p.start_date <= todayStr &&
+    (p.end_date === null || p.end_date >= todayStr)
+  ) ?? null
+
   const [doneCount, setDoneCount] = useState(0)
-  const [ready, setReady] = useState(false)
+  const todayWorkoutId = todayWorkout?.id
 
   useEffect(() => {
-    const todayDay = new Date().getDay()
-    const workout = plans.find(p => p.scheduled_day === todayDay) ?? null
-    setTodayWorkout(workout)
-    setReady(true)
-
-    if (!workout) return
+    if (!todayWorkoutId) return
 
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
@@ -28,16 +34,16 @@ export default function TodayWorkout({ plans, kidId }: { plans: WorkoutWithDrill
     supabase
       .from('session_logs')
       .select('drill_id')
-      .eq('plan_id', workout.id)
+      .eq('plan_id', todayWorkoutId)
       .eq('kid_id', kidId)
       .gte('completed_at', todayStart.toISOString())
       .then(({ data }) => setDoneCount(data?.length ?? 0))
-  }, [plans, kidId])
+  }, [todayWorkoutId, kidId])
 
-  if (!ready || !todayWorkout) return null
-
-  const total = todayWorkout.plan_drills?.length ?? 0
+  const total = todayWorkout?.plan_drills?.length ?? 0
   const allDone = total > 0 && doneCount === total
+
+  if (!todayWorkout || allDone) return null
 
   return (
     <div className="border-t border-slate-100 p-5">

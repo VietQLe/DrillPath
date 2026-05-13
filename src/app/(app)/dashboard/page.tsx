@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { SPORT_EMOJI, LEVEL_LABELS, LEVEL_COLORS, cn } from '@/lib/utils'
-import TodayWorkout from './TodayWorkout'
+import TodayWorkout from './TodayWorkoutClient'
 import type { Kid, TrainingPlan, PlanDrill, Drill } from '@/types'
 
 async function getStreak(kidId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<number> {
