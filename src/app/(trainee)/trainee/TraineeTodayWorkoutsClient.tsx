@@ -3,7 +3,9 @@
 // Rendered client-only (via dynamic import with ssr:false in page.tsx)
 // so new Date().getDay() always reflects browser local timezone.
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type { TrainingPlan, PlanDrill, Drill } from '@/types'
 
@@ -26,10 +28,28 @@ export default function TraineeTodayWorkoutsClient({
   todayStart.setHours(0, 0, 0, 0)
   const todayStartISO = todayStart.toISOString()
 
-  const activeWorkouts = plans.filter(w => {
-    if (w.scheduled_day !== todayDay) return false
+  const [exceptions, setExceptions] = useState<Set<string> | null>(null)
+
+  useEffect(() => {
+    const planIds = plans.map(p => p.id)
+    let cancelled = false
+    const supabase = createClient()
+    const query = planIds.length > 0
+      ? supabase.from('plan_exceptions').select('plan_id').in('plan_id', planIds).eq('exception_date', todayStr)
+      : Promise.resolve({ data: [] as { plan_id: string }[] })
+
+    query.then(({ data }) => {
+      if (!cancelled) setExceptions(new Set((data ?? []).map(e => e.plan_id)))
+    })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayStr])
+
+  const activeWorkouts = exceptions === null ? null : plans.filter(w => {
+    if (exceptions.has(w.id)) return false
     if (w.start_date > todayStr) return false
     if (w.end_date && w.end_date < todayStr) return false
+    if (w.start_date !== w.end_date && w.scheduled_day !== todayDay) return false
     return true
   })
 
@@ -38,6 +58,8 @@ export default function TraineeTodayWorkoutsClient({
       .filter(l => l.plan_id && l.completed_at >= todayStartISO)
       .map(l => `${l.plan_id}:${l.drill_id}`)
   )
+
+  if (activeWorkouts === null) return null
 
   return (
     <>

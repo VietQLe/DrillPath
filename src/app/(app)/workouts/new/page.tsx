@@ -6,7 +6,7 @@ import type { Kid, Drill, TemplateDrill, WorkoutTemplate, TrainingPlan, PlanDril
 export default async function NewWorkoutPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kid?: string; day?: string; template?: string; copy?: string }>
+  searchParams: Promise<{ kid?: string; day?: string; date?: string; template?: string; copy?: string }>
 }) {
   const params = await searchParams
   const supabase = await createClient()
@@ -69,6 +69,7 @@ export default async function NewWorkoutPage({
         kids={kids as Kid[]}
         drills={(drills ?? []) as Drill[]}
         defaultKidId={params.kid}
+        defaultDate={params.date}
         defaultDay={params.day !== undefined ? parseInt(params.day) : undefined}
         defaultName={defaultName}
         defaultFocus={defaultFocus}

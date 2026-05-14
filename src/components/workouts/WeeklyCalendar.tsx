@@ -371,7 +371,7 @@ export default function WeeklyCalendar({
 
                 {dateStr >= todayStr && (
                   <Link
-                    href={`/workouts/new?kid=${kidId}&day=${jsDay}`}
+                    href={`/workouts/new?kid=${kidId}&date=${dateStr}`}
                     className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400 hover:text-blue-600 hover:bg-slate-50 transition-colors"
                   >
                     <span className="text-base leading-none">+</span> Add workout

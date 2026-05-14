@@ -50,6 +50,7 @@ export default function WorkoutBuilder({
   kids,
   drills,
   defaultKidId,
+  defaultDate,
   defaultDay,
   defaultName,
   defaultFocus,
@@ -59,6 +60,7 @@ export default function WorkoutBuilder({
   kids: Kid[]
   drills: Drill[]
   defaultKidId?: string
+  defaultDate?: string
   defaultDay?: number
   defaultName?: string
   defaultFocus?: string
@@ -82,6 +84,7 @@ export default function WorkoutBuilder({
   const [duration, setDuration] = useState<'4w' | '8w' | '3m' | '6m' | 'ongoing'>('ongoing')
   const todayStr = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState<string>(() => {
+    if (defaultDate) return defaultDate
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     if (defaultDay !== undefined) {

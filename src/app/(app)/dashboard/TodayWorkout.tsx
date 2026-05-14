@@ -15,11 +15,31 @@ export default function TodayWorkout({ plans, kidId }: { plans: WorkoutWithDrill
   const todayDay = now.getDay()
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  const todayWorkout = plans.find(p =>
-    p.scheduled_day === todayDay &&
-    p.start_date <= todayStr &&
-    (p.end_date === null || p.end_date >= todayStr)
-  ) ?? null
+  const [exceptions, setExceptions] = useState<Set<string> | null>(null)
+
+  useEffect(() => {
+    const planIds = plans.map(p => p.id)
+    let cancelled = false
+    const supabase = createClient()
+    const query = planIds.length > 0
+      ? supabase.from('plan_exceptions').select('plan_id').in('plan_id', planIds).eq('exception_date', todayStr)
+      : Promise.resolve({ data: [] as { plan_id: string }[] })
+
+    query.then(({ data }) => {
+      if (!cancelled) setExceptions(new Set((data ?? []).map(e => e.plan_id)))
+    })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayStr])
+
+  const todayWorkout = exceptions === null ? null : plans.find(p => {
+    if (exceptions.has(p.id)) return false
+    if (p.start_date > todayStr) return false
+    if (p.end_date !== null && p.end_date < todayStr) return false
+    // Recurring/spanning workouts: also verify today is the scheduled weekday
+    if (p.start_date !== p.end_date && p.scheduled_day !== todayDay) return false
+    return true
+  }) ?? null
 
   const [doneCount, setDoneCount] = useState(0)
   const todayWorkoutId = todayWorkout?.id
@@ -59,7 +79,24 @@ export default function TodayWorkout({ plans, kidId }: { plans: WorkoutWithDrill
   const total = todayWorkout?.plan_drills?.length ?? 0
   const allDone = total > 0 && doneCount === total
 
-  if (!todayWorkout) return null
+  if (exceptions === null) return null
+
+  if (!todayWorkout) {
+    return (
+      <div className="border-t border-slate-100 p-5">
+        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Today&apos;s Workout</h3>
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl flex-shrink-0">
+            💤
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-slate-700 text-sm">Rest day</div>
+            <div className="text-xs text-slate-400 mt-0.5">Recovery is part of training — come back stronger tomorrow.</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (allDone) {
     return (
