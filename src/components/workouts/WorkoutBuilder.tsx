@@ -80,7 +80,7 @@ export default function WorkoutBuilder({
   const [error, setError] = useState('')
 
   // Recurrence
-  const [isRecurring, setIsRecurring] = useState(true)
+  const [isRecurring, setIsRecurring] = useState(false)
   const [duration, setDuration] = useState<'4w' | '8w' | '3m' | '6m' | 'ongoing'>('ongoing')
   const todayStr = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState<string>(() => {
