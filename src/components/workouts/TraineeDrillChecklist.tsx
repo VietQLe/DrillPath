@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { LEVEL_COLORS, LEVEL_LABELS, formatDuration, cn } from '@/lib/utils'
-import type { PlanDrill, Drill } from '@/types'
+import DrillRecorder from '@/components/drills/DrillRecorder'
+import type { PlanDrill, Drill, DrillRecording } from '@/types'
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',
@@ -20,6 +21,7 @@ export default function TraineeDrillChecklist({
   initialCompletedIds,
   initialRating = null,
   initialNotes = null,
+  initialRecordings = [],
 }: {
   planId: string
   kidId: string
@@ -27,10 +29,12 @@ export default function TraineeDrillChecklist({
   initialCompletedIds: string[]
   initialRating?: number | null
   initialNotes?: string | null
+  initialRecordings?: DrillRecording[]
 }) {
   const router = useRouter()
   const [completedIds, setCompletedIds] = useState(new Set(initialCompletedIds))
   const [loading, setLoading] = useState<string | null>(null)
+  const [expandedDrillId, setExpandedDrillId] = useState<string | null>(null)
   const [finished, setFinished] = useState(initialCompletedIds.length === drills.length && drills.length > 0)
   const [ratingStep, setRatingStep] = useState(false)
   const [workoutRating, setWorkoutRating] = useState<1 | 2 | 3>(2)
@@ -215,65 +219,99 @@ export default function TraineeDrillChecklist({
         const drill = pd.drill
         const done = completedIds.has(pd.drill_id)
         const isLoading = loading === pd.drill_id
+        const isExpanded = expandedDrillId === pd.drill_id
+        const drillRecordings = initialRecordings.filter(r => r.drill_id === pd.drill_id)
 
         return (
-          <div
-            key={pd.id}
-            className={cn(
-              'rounded-2xl border transition-all',
-              done ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'
-            )}
-          >
-            <div className="flex items-start gap-3 p-4">
-              <button
-                onClick={() => toggleDrill(pd.drill_id)}
-                disabled={!!loading}
-                className={cn(
-                  'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 font-bold text-sm transition-all border-2',
-                  done
-                    ? 'bg-green-500 border-green-500 text-white'
-                    : 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600',
-                  isLoading && 'opacity-50 cursor-wait'
-                )}
-              >
-                {done ? '✓' : index + 1}
-              </button>
+          <div key={pd.id} className="space-y-2">
+            <div
+              className={cn(
+                'rounded-2xl border transition-all',
+                done ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'
+              )}
+            >
+              <div className="flex items-start gap-3 p-4">
+                <button
+                  onClick={() => toggleDrill(pd.drill_id)}
+                  disabled={!!loading}
+                  className={cn(
+                    'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 font-bold text-sm transition-all border-2',
+                    done
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600',
+                    isLoading && 'opacity-50 cursor-wait'
+                  )}
+                >
+                  {done ? '✓' : index + 1}
+                </button>
 
-              <div className="flex-1 min-w-0">
-                <div className={cn(
-                  'font-semibold text-sm',
-                  done ? 'line-through text-slate-400' : 'text-slate-900'
-                )}>
-                  {drill.title}
+                <div className="flex-1 min-w-0">
+                  <div className={cn(
+                    'font-semibold text-sm',
+                    done ? 'line-through text-slate-400' : 'text-slate-900'
+                  )}>
+                    {drill.title}
+                  </div>
+                  <p className={cn(
+                    'text-xs mt-0.5 line-clamp-2',
+                    done ? 'text-slate-400' : 'text-slate-500'
+                  )}>
+                    {drill.description}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    <span className={cn(
+                      'text-xs px-2 py-0.5 rounded-full font-medium',
+                      done ? 'bg-slate-100 text-slate-400' : LEVEL_COLORS[drill.difficulty]
+                    )}>
+                      {LEVEL_LABELS[drill.difficulty]}
+                    </span>
+                    <span className={cn(
+                      'text-xs px-2 py-0.5 rounded-full',
+                      done ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-600'
+                    )}>
+                      {SKILL_FOCUS_EMOJI[drill.skill_focus]} {drill.skill_focus}
+                    </span>
+                    <span className={cn(
+                      'text-xs px-2 py-0.5 rounded-full',
+                      done ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-600'
+                    )}>
+                      ⏱ {formatDuration(drill.duration_minutes)}
+                    </span>
+                  </div>
                 </div>
-                <p className={cn(
-                  'text-xs mt-0.5 line-clamp-2',
-                  done ? 'text-slate-400' : 'text-slate-500'
-                )}>
-                  {drill.description}
-                </p>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full font-medium',
-                    done ? 'bg-slate-100 text-slate-400' : LEVEL_COLORS[drill.difficulty]
-                  )}>
-                    {LEVEL_LABELS[drill.difficulty]}
-                  </span>
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full',
-                    done ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-600'
-                  )}>
-                    {SKILL_FOCUS_EMOJI[drill.skill_focus]} {drill.skill_focus}
-                  </span>
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full',
-                    done ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-600'
-                  )}>
-                    ⏱ {formatDuration(drill.duration_minutes)}
-                  </span>
-                </div>
+
+                <button
+                  onClick={() => setExpandedDrillId(isExpanded ? null : pd.drill_id)}
+                  className={cn(
+                    'relative flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors mt-0.5',
+                    isExpanded
+                      ? 'bg-blue-100 text-blue-600'
+                      : drillRecordings.length > 0
+                      ? 'bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600'
+                      : 'text-slate-300 hover:text-blue-500 hover:bg-blue-50'
+                  )}
+                  title={isExpanded ? 'Hide recorder' : 'Record this drill'}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+                  </svg>
+                  {drillRecordings.length > 0 && !isExpanded && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-blue-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {drillRecordings.length}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
+
+            {isExpanded && (
+              <DrillRecorder
+                drillId={pd.drill_id}
+                planId={planId}
+                kidId={kidId}
+                initialRecordings={drillRecordings}
+              />
+            )}
           </div>
         )
       })}

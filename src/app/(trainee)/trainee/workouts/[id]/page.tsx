@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import TraineeDrillChecklist from '@/components/workouts/TraineeDrillChecklist'
 import { SPORT_EMOJI, formatDuration, cn } from '@/lib/utils'
-import type { PlanDrill, Drill, Kid } from '@/types'
+import type { PlanDrill, Drill, Kid, DrillRecording } from '@/types'
 
 export default async function TraineeWorkoutPage({
   params,
@@ -40,7 +40,7 @@ export default async function TraineeWorkoutPage({
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
 
-  const [{ data: todayLogs }, { data: sessionRow }] = await Promise.all([
+  const [{ data: todayLogs }, { data: sessionRow }, { data: recordingData }] = await Promise.all([
     admin.from('session_logs').select('drill_id')
       .eq('plan_id', id).eq('kid_id', kid.id)
       .gte('completed_at', todayStart.toISOString()),
@@ -48,6 +48,9 @@ export default async function TraineeWorkoutPage({
       .eq('plan_id', id).eq('kid_id', kid.id)
       .gte('completed_at', todayStart.toISOString())
       .maybeSingle(),
+    admin.from('drill_recordings').select('*')
+      .eq('plan_id', id).eq('kid_id', kid.id)
+      .order('recorded_at', { ascending: false }),
   ])
 
   const completedDrillIds = new Set((todayLogs ?? []).map(l => l.drill_id))
@@ -125,6 +128,7 @@ export default async function TraineeWorkoutPage({
           initialCompletedIds={[...completedDrillIds]}
           initialRating={sessionRow?.rating ?? null}
           initialNotes={sessionRow?.notes ?? null}
+          initialRecordings={(recordingData ?? []) as DrillRecording[]}
         />
       )}
     </div>
