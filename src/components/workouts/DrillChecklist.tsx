@@ -50,6 +50,43 @@ export default function DrillChecklist({
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
+  // Re-fetch completed drill IDs from DB on any session_logs change (trainer or trainee)
+  useEffect(() => {
+    const supabase = createClient()
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+
+    async function refetchCompleted() {
+      const { data } = await supabase
+        .from('session_logs')
+        .select('drill_id')
+        .eq('plan_id', planId)
+        .eq('kid_id', kidId)
+        .gte('completed_at', todayStart.toISOString())
+      setCompletedIds(new Set((data ?? []).map(r => r.drill_id)))
+    }
+
+    const channel = supabase
+      .channel(`drill_checklist:${planId}:${kidId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'session_logs',
+        filter: `plan_id=eq.${planId}`,
+      }, refetchCompleted)
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [planId, kidId])
+
+  // When Realtime sync makes all drills complete (trainee marked last drill), show finished
+  useEffect(() => {
+    if (completedIds.size === drills.length && drills.length > 0 && !finished && !ratingStep) {
+      setFinished(true)
+      router.refresh()
+    }
+  }, [completedIds.size, drills.length, finished, ratingStep, router])
+
   useEffect(() => {
     if (!finished) return
     let cancelled = false
@@ -139,10 +176,15 @@ export default function DrillChecklist({
       setCompletedIds(next)
 
       if (next.size === drills.length) {
-        await supabase.from('workout_sessions').insert({
-          kid_id: kidId,
-          plan_id: planId,
-        })
+        const { count } = await supabase
+          .from('workout_sessions')
+          .select('*', { count: 'exact', head: true })
+          .eq('plan_id', planId)
+          .eq('kid_id', kidId)
+          .gte('completed_at', todayStart.toISOString())
+        if (!count) {
+          await supabase.from('workout_sessions').insert({ kid_id: kidId, plan_id: planId })
+        }
         setRatingStep(true)
       }
     }

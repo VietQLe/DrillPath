@@ -27,23 +27,56 @@ export default function TodayWorkout({ plans, kidId }: { plans: WorkoutWithDrill
   useEffect(() => {
     if (!todayWorkoutId) return
 
+    const supabase = createClient()
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
 
-    const supabase = createClient()
-    supabase
-      .from('session_logs')
-      .select('drill_id')
-      .eq('plan_id', todayWorkoutId)
-      .eq('kid_id', kidId)
-      .gte('completed_at', todayStart.toISOString())
-      .then(({ data }) => setDoneCount(data?.length ?? 0))
+    async function fetchDoneCount() {
+      const { data } = await supabase
+        .from('session_logs')
+        .select('drill_id')
+        .eq('plan_id', todayWorkoutId)
+        .eq('kid_id', kidId)
+        .gte('completed_at', todayStart.toISOString())
+      setDoneCount(data?.length ?? 0)
+    }
+
+    fetchDoneCount()
+
+    const channel = supabase
+      .channel(`today_workout:${todayWorkoutId}:${kidId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'session_logs',
+        filter: `plan_id=eq.${todayWorkoutId}`,
+      }, fetchDoneCount)
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   }, [todayWorkoutId, kidId])
 
   const total = todayWorkout?.plan_drills?.length ?? 0
   const allDone = total > 0 && doneCount === total
 
-  if (!todayWorkout || allDone) return null
+  if (!todayWorkout) return null
+
+  if (allDone) {
+    return (
+      <div className="border-t border-slate-100 p-5">
+        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Today&apos;s Workout</h3>
+        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-3">
+          <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
+            ✓
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-green-800 text-sm">All workouts completed for today!</div>
+            <div className="text-xs text-green-600 truncate mt-0.5">{todayWorkout.name}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="border-t border-slate-100 p-5">
@@ -54,13 +87,11 @@ export default function TodayWorkout({ plans, kidId }: { plans: WorkoutWithDrill
       >
         <div className={cn(
           'w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0',
-          allDone
-            ? 'bg-green-500 text-white'
-            : doneCount > 0
+          doneCount > 0
             ? 'bg-blue-200 text-blue-800'
             : 'bg-white text-blue-600 border-2 border-blue-300'
         )}>
-          {allDone ? '✓' : `${doneCount}/${total}`}
+          {`${doneCount}/${total}`}
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-slate-900 text-sm">{todayWorkout.name}</div>

@@ -120,6 +120,7 @@ export default async function TraineeWorkoutPage({
       ) : (
         <TraineeDrillChecklist
           planId={id}
+          kidId={kid.id}
           drills={drills}
           initialCompletedIds={[...completedDrillIds]}
           initialRating={sessionRow?.rating ?? null}

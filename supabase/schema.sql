@@ -460,6 +460,13 @@ create policy "Trainees manage their drill recordings"
   with check (kid_id in (select id from kids where trainee_user_id = auth.uid()));
 
 -- =====================
+-- REALTIME
+-- =====================
+-- Enable Realtime for session_logs so trainer/trainee views update live when either marks a drill.
+-- Run this once on the Supabase project (idempotent):
+alter publication supabase_realtime add table session_logs;
+
+-- =====================
 -- SEED DATA: Drill Library
 -- =====================
 

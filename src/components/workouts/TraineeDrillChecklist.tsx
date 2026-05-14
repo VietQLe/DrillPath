@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { LEVEL_COLORS, LEVEL_LABELS, formatDuration, cn } from '@/lib/utils'
 import type { PlanDrill, Drill } from '@/types'
 
@@ -14,12 +15,14 @@ type DrillEntry = PlanDrill & { drill: Drill }
 
 export default function TraineeDrillChecklist({
   planId,
+  kidId,
   drills,
   initialCompletedIds,
   initialRating = null,
   initialNotes = null,
 }: {
   planId: string
+  kidId: string
   drills: DrillEntry[]
   initialCompletedIds: string[]
   initialRating?: number | null
@@ -35,6 +38,42 @@ export default function TraineeDrillChecklist({
   const [ratingLoading, setRatingLoading] = useState(false)
   const [savedRating, setSavedRating] = useState<number | null>(initialRating)
   const [savedNotes, setSavedNotes] = useState<string | null>(initialNotes)
+
+  // Re-fetch completed drill IDs from DB on any session_logs change (trainer or trainee)
+  useEffect(() => {
+    const supabase = createClient()
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+
+    async function refetchCompleted() {
+      const { data } = await supabase
+        .from('session_logs')
+        .select('drill_id')
+        .eq('plan_id', planId)
+        .eq('kid_id', kidId)
+        .gte('completed_at', todayStart.toISOString())
+      setCompletedIds(new Set((data ?? []).map(r => r.drill_id)))
+    }
+
+    const channel = supabase
+      .channel(`trainee_checklist:${planId}:${kidId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'session_logs',
+        filter: `plan_id=eq.${planId}`,
+      }, refetchCompleted)
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [planId, kidId])
+
+  // When Realtime sync makes all drills complete (trainer marked last drill), show rating step
+  useEffect(() => {
+    if (completedIds.size === drills.length && drills.length > 0 && !finished && !ratingStep) {
+      setRatingStep(true)
+    }
+  }, [completedIds.size, drills.length, finished, ratingStep])
 
   async function toggleDrill(drillId: string) {
     if (loading) return
