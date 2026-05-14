@@ -33,8 +33,12 @@ const DRILL_SCHEMA = {
       minItems: 2,
       maxItems: 8,
     },
+    youtube_search_query: {
+      type: 'string',
+      description: 'A focused 4-6 word YouTube search query to find a tutorial video for this drill',
+    },
   },
-  required: ['title', 'description', 'skill_focus', 'difficulty', 'duration_minutes', 'equipment', 'instructions'],
+  required: ['title', 'description', 'skill_focus', 'difficulty', 'duration_minutes', 'equipment', 'instructions', 'youtube_search_query'],
   additionalProperties: false,
 }
 
@@ -86,5 +90,11 @@ Create a replacement drill that is meaningfully different from "${drillToReplace
     return NextResponse.json({ error: 'Failed to generate drill' }, { status: 500 })
   }
 
-  return NextResponse.json(toolUse.input)
+  const { youtube_search_query, ...drill } = toolUse.input as { youtube_search_query?: string; [key: string]: unknown }
+  return NextResponse.json({
+    ...drill,
+    video_url: youtube_search_query
+      ? `https://www.youtube.com/results?search_query=${encodeURIComponent(youtube_search_query)}`
+      : null,
+  })
 }

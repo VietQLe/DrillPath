@@ -131,6 +131,32 @@ export default async function DrillDetailPage({
         </ol>
       </div>
 
+      {/* Tutorial video link */}
+      {d.video_url && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 mb-4">
+          <h2 className="font-semibold text-slate-900 mb-3">Tutorial video</h2>
+          <a
+            href={d.video_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-200 hover:bg-red-100 transition-colors group"
+          >
+            <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-red-700">Watch on YouTube</p>
+              <p className="text-xs text-red-500 mt-0.5">Search results for this drill</p>
+            </div>
+            <svg className="w-4 h-4 text-red-400 group-hover:translate-x-0.5 transition-transform flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </a>
+        </div>
+      )}
+
       {(recordings.length > 0 || (planId && kidId)) && (
         <DrillRecorder
           drillId={d.id}

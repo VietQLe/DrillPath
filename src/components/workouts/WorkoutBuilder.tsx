@@ -38,6 +38,7 @@ type GeneratedDrill = {
   duration_minutes: number
   equipment: string[]
   instructions: string[]
+  video_url?: string | null
 }
 
 type GeneratedWorkout = {
@@ -223,7 +224,7 @@ export default function WorkoutBuilder({
       duration_minutes: d.duration_minutes,
       equipment: d.equipment,
       instructions: d.instructions,
-      video_url: null,
+      video_url: d.video_url ?? null,
       thumbnail_url: null,
       created_by: null,
       created_at: new Date().toISOString(),
@@ -321,6 +322,7 @@ export default function WorkoutBuilder({
             duration_minutes: drill.duration_minutes,
             equipment: drill.equipment,
             instructions: drill.instructions,
+            video_url: drill.video_url ?? null,
             created_by: userId,
           })
           .select('id')

@@ -46,6 +46,10 @@ const WORKOUT_SCHEMA = {
             minItems: 2,
             maxItems: 8,
           },
+          youtube_search_query: {
+            type: 'string',
+            description: 'A focused 4-6 word YouTube search query to find a tutorial video for this drill, e.g. "basketball crossover dribble drill beginner"',
+          },
         },
         required: [
           'title',
@@ -55,6 +59,7 @@ const WORKOUT_SCHEMA = {
           'duration_minutes',
           'equipment',
           'instructions',
+          'youtube_search_query',
         ],
         additionalProperties: false,
       },
@@ -162,5 +167,18 @@ Only generate responses that fit the create_workout tool schema.`,
     return NextResponse.json({ error: 'Failed to generate workout' }, { status: 500 })
   }
 
-  return NextResponse.json(toolUse.input)
+  const workout = toolUse.input as {
+    name: string
+    focus: string
+    drills: Array<{ youtube_search_query?: string; [key: string]: unknown }>
+  }
+
+  const drills = workout.drills.map(({ youtube_search_query, ...drill }) => ({
+    ...drill,
+    video_url: youtube_search_query
+      ? `https://www.youtube.com/results?search_query=${encodeURIComponent(youtube_search_query)}`
+      : null,
+  }))
+
+  return NextResponse.json({ ...workout, drills })
 }
