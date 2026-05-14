@@ -224,17 +224,12 @@ export default function DrillRecorder({
     ])
   }
 
-  async function extractFrames(videoSrc: string, count = 4): Promise<string[]> {
+  async function extractFrames(videoSrc: string): Promise<string[]> {
     return new Promise((resolve) => {
       const video = document.createElement('video')
       video.crossOrigin = 'anonymous'
       video.muted = true
       video.preload = 'auto'
-      const canvas = document.createElement('canvas')
-      canvas.width = 640
-      canvas.height = 360
-      const ctx = canvas.getContext('2d')
-      if (!ctx) { resolve([]); return }
       let settled = false
       const done = (frames: string[]) => { if (!settled) { settled = true; resolve(frames) } }
       const timeout = setTimeout(() => done([]), 15000)
@@ -242,14 +237,32 @@ export default function DrillRecorder({
       video.addEventListener('loadedmetadata', () => {
         const duration = video.duration
         if (!isFinite(duration) || duration <= 0) { clearTimeout(timeout); done([]); return }
-        const safeCount = Math.min(count, Math.max(1, Math.floor(duration)))
-        const timestamps = Array.from({ length: safeCount }, (_, i) => (duration * (i + 1)) / (safeCount + 1))
+
+        // Preserve aspect ratio, cap longer side at 480px
+        const MAX = 480
+        const vw = video.videoWidth || 640
+        const vh = video.videoHeight || 360
+        const scale = Math.min(MAX / vw, MAX / vh, 1)
+        const cw = Math.round(vw * scale)
+        const ch = Math.round(vh * scale)
+
+        const canvas = document.createElement('canvas')
+        canvas.width = cw
+        canvas.height = ch
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { clearTimeout(timeout); done([]); return }
+
+        // ~1 frame per 5s, min 2, max 6
+        const count = Math.min(6, Math.max(2, Math.round(duration / 5)))
+        const timestamps = Array.from({ length: count }, (_, i) => (duration * (i + 1)) / (count + 1))
         const frames: string[] = []
         let idx = 0
         video.addEventListener('seeked', function onSeeked() {
           try {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-            frames.push(canvas.toDataURL('image/jpeg', 0.7).split(',')[1])
+            ctx.fillStyle = '#000'
+            ctx.fillRect(0, 0, cw, ch)
+            ctx.drawImage(video, 0, 0, cw, ch)
+            frames.push(canvas.toDataURL('image/jpeg', 0.65).split(',')[1])
           } catch { /* canvas tainted */ }
           idx++
           if (idx < timestamps.length) {
