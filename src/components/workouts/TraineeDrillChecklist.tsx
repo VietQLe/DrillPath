@@ -6,7 +6,15 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { LEVEL_COLORS, LEVEL_LABELS, formatDuration, cn } from '@/lib/utils'
 import DrillRecorder from '@/components/drills/DrillRecorder'
+import RecordingsCarousel from '@/components/workouts/RecordingsCarousel'
+import type { CarouselItem } from '@/components/workouts/RecordingsCarousel'
 import type { PlanDrill, Drill, DrillRecording } from '@/types'
+
+type DrillGroup = {
+  drillId: string
+  title: string
+  recs: { id: string; video_url: string }[]
+}
 
 const SKILL_FOCUS_EMOJI: Record<string, string> = {
   speed: '⚡', agility: '🔄', strength: '💪', technique: '🎯', endurance: '🏃', flexibility: '🤸',
@@ -42,6 +50,8 @@ export default function TraineeDrillChecklist({
   const [ratingLoading, setRatingLoading] = useState(false)
   const [savedRating, setSavedRating] = useState<number | null>(initialRating)
   const [savedNotes, setSavedNotes] = useState<string | null>(initialNotes)
+  const [drillGroups, setDrillGroups] = useState<DrillGroup[]>([])
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
 
   // Re-fetch completed drill IDs from DB on any session_logs change (trainer or trainee)
   useEffect(() => {
@@ -78,6 +88,59 @@ export default function TraineeDrillChecklist({
       setRatingStep(true)
     }
   }, [completedIds.size, drills.length, finished, ratingStep])
+
+  // Load recordings when workout is finished
+  useEffect(() => {
+    if (!finished) return
+    let cancelled = false
+    async function loadRecordings() {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('drill_recordings')
+        .select('id, video_url, drill_id, drill:drills(title)')
+        .eq('plan_id', planId)
+        .eq('kid_id', kidId)
+        .order('recorded_at', { ascending: false })
+
+      if (cancelled || !data || data.length === 0) return
+
+      const drillOrder = drills.map(pd => pd.drill_id)
+      const grouped = new Map<string, DrillGroup>()
+      for (const rec of data) {
+        const title = (rec.drill as unknown as { title: string } | null)?.title ?? 'Unknown drill'
+        if (!grouped.has(rec.drill_id)) grouped.set(rec.drill_id, { drillId: rec.drill_id, title, recs: [] })
+        grouped.get(rec.drill_id)!.recs.push({ id: rec.id, video_url: rec.video_url })
+      }
+      const sorted = drillOrder.filter(id => grouped.has(id)).map(id => grouped.get(id)!)
+      if (!cancelled) setDrillGroups(sorted)
+
+      const urlEntries = await Promise.all(
+        data.map(async rec => {
+          const { data: signed } = await supabase.storage.from('drill-recordings').createSignedUrl(rec.video_url, 3600)
+          return signed ? ([rec.id, signed.signedUrl] as const) : null
+        })
+      )
+      if (!cancelled) {
+        const urls: Record<string, string> = {}
+        for (const e of urlEntries) { if (e) urls[e[0]] = e[1] }
+        setSignedUrls(urls)
+      }
+    }
+    loadRecordings()
+    return () => { cancelled = true }
+  }, [finished]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function deleteRecording(id: string, videoUrl: string) {
+    setDrillGroups(prev =>
+      prev.map(g => ({ ...g, recs: g.recs.filter(r => r.id !== id) })).filter(g => g.recs.length > 0)
+    )
+    setSignedUrls(prev => { const next = { ...prev }; delete next[id]; return next })
+    const supabase = createClient()
+    await Promise.all([
+      supabase.storage.from('drill-recordings').remove([videoUrl]),
+      supabase.from('drill_recordings').delete().eq('id', id),
+    ])
+  }
 
   async function toggleDrill(drillId: string) {
     if (loading) return
@@ -201,6 +264,19 @@ export default function TraineeDrillChecklist({
             )}
           </div>
         )}
+        {drillGroups.length > 0 && (() => {
+          const items: CarouselItem[] = drillGroups.flatMap(g =>
+            g.recs.map(r => ({ id: r.id, signedUrl: signedUrls[r.id], drillTitle: g.title, videoUrl: r.video_url }))
+          )
+          return (
+            <div className="border-t border-green-100 px-5 py-4">
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+                Recordings{items.length > 1 ? ` (${items.length})` : ''}
+              </p>
+              <RecordingsCarousel items={items} onDelete={deleteRecording} />
+            </div>
+          )
+        })()}
         <div className="border-t border-green-100 p-5">
           <Link
             href="/trainee"
