@@ -35,7 +35,10 @@ export async function POST(request: Request) {
   todayStart.setHours(0, 0, 0, 0)
 
   if (action === 'complete') {
-    const { error } = await admin.from('session_logs').insert({
+    // Use the user's own client (not admin) so the INSERT carries the trainee's auth.uid()
+    // into the WAL event — Supabase Realtime needs a real uid to pass subscriber RLS checks
+    // and deliver the event to the trainer's subscription.
+    const { error } = await supabase.from('session_logs').insert({
       kid_id: kid.id,
       drill_id: drillId,
       plan_id: planId,
@@ -59,7 +62,8 @@ export async function POST(request: Request) {
         .eq('plan_id', planId).eq('kid_id', kid.id).gte('completed_at', todayStart.toISOString()),
     ])
 
-    const { error } = await admin
+    // Same reason as above — use user client so DELETE also fires Realtime for subscribers
+    const { error } = await supabase
       .from('session_logs')
       .delete()
       .eq('plan_id', planId)

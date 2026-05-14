@@ -53,8 +53,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL(isTrainee ? '/trainee' : '/dashboard', request.url))
     }
 
-    // Trainees may only access /trainee and /invite routes
-    if (isTrainee && !pathname.startsWith('/trainee') && !pathname.startsWith('/invite')) {
+    // Trainees may only access /trainee, /invite, and /api routes (API routes enforce their own auth)
+    if (isTrainee && !pathname.startsWith('/trainee') && !pathname.startsWith('/invite') && !pathname.startsWith('/api/')) {
       return NextResponse.redirect(new URL('/trainee', request.url))
     }
     // Trainers (and new users without kids yet) may not access /trainee routes

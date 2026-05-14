@@ -64,6 +64,7 @@ export default function DrillChecklist({
         .eq('kid_id', kidId)
         .gte('completed_at', todayStart.toISOString())
       setCompletedIds(new Set((data ?? []).map(r => r.drill_id)))
+      router.refresh()
     }
 
     const channel = supabase
@@ -77,7 +78,7 @@ export default function DrillChecklist({
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [planId, kidId])
+  }, [planId, kidId, router])
 
   // When Realtime sync makes all drills complete (trainee marked last drill), show finished
   useEffect(() => {
