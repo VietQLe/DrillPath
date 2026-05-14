@@ -163,6 +163,13 @@ export default async function DrillDetailPage({
           planId={planId}
           kidId={kidId}
           initialRecordings={recordings}
+          drillContext={{
+            title: d.title,
+            description: d.description,
+            instructions: d.instructions,
+            sport: d.sport,
+            skillLevel: d.difficulty,
+          }}
         />
       )}
 

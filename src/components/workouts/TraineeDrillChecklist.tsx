@@ -265,9 +265,20 @@ export default function TraineeDrillChecklist({
           </div>
         )}
         {drillGroups.length > 0 && (() => {
-          const items: CarouselItem[] = drillGroups.flatMap(g =>
-            g.recs.map(r => ({ id: r.id, signedUrl: signedUrls[r.id], drillTitle: g.title, videoUrl: r.video_url }))
-          )
+          const drillMap = new Map(drills.map(pd => [pd.drill_id, pd.drill]))
+          const items: CarouselItem[] = drillGroups.flatMap(g => {
+            const d = drillMap.get(g.drillId)
+            return g.recs.map(r => ({
+              id: r.id,
+              signedUrl: signedUrls[r.id],
+              drillTitle: g.title,
+              videoUrl: r.video_url,
+              drillDescription: d?.description,
+              drillInstructions: d?.instructions,
+              sport: d?.sport,
+              skillLevel: d?.difficulty,
+            }))
+          })
           return (
             <div className="border-t border-green-100 px-5 py-4">
               <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">

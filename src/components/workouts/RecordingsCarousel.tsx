@@ -8,6 +8,127 @@ export type CarouselItem = {
   signedUrl?: string
   drillTitle: string
   videoUrl: string
+  drillDescription?: string
+  drillInstructions?: string[]
+  sport?: string
+  skillLevel?: string
+}
+
+async function extractFrames(videoSrc: string, count = 4): Promise<string[]> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.muted = true
+    video.preload = 'auto'
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 360
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { resolve([]); return }
+
+    let settled = false
+    const done = (frames: string[]) => { if (!settled) { settled = true; resolve(frames) } }
+    const timeout = setTimeout(() => done([]), 15000)
+
+    video.addEventListener('error', () => { clearTimeout(timeout); done([]) })
+
+    video.addEventListener('loadedmetadata', () => {
+      const duration = video.duration
+      if (!isFinite(duration) || duration <= 0) { clearTimeout(timeout); done([]); return }
+
+      const safeCount = Math.min(count, Math.max(1, Math.floor(duration)))
+      const timestamps = Array.from({ length: safeCount }, (_, i) =>
+        (duration * (i + 1)) / (safeCount + 1)
+      )
+      const frames: string[] = []
+      let idx = 0
+
+      video.addEventListener('seeked', function onSeeked() {
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          frames.push(canvas.toDataURL('image/jpeg', 0.7).split(',')[1])
+        } catch {
+          // Canvas tainted or draw failed — skip this frame
+        }
+        idx++
+        if (idx < timestamps.length) {
+          video.currentTime = timestamps[idx]
+        } else {
+          video.removeEventListener('seeked', onSeeked)
+          clearTimeout(timeout)
+          done(frames)
+        }
+      })
+
+      video.currentTime = timestamps[0]
+    })
+
+    video.src = videoSrc
+    video.load()
+  })
+}
+
+type CoachInsights = {
+  overall: string
+  strengths: string[]
+  improvements: string[]
+  keyFocus: string
+}
+
+function InsightsPanel({ insights, onDismiss }: { insights: CoachInsights; onDismiss: () => void }) {
+  return (
+    <div className="mt-3 rounded-xl bg-violet-50 border border-violet-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-base">🧠</span>
+          <span className="font-semibold text-violet-800 text-sm">Coach Insights</span>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="text-violet-400 hover:text-violet-600 text-lg leading-none transition-colors"
+          aria-label="Dismiss insights"
+        >
+          ×
+        </button>
+      </div>
+
+      <p className="text-sm text-violet-800 leading-relaxed">{insights.overall}</p>
+
+      {insights.strengths.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-1">Doing well</p>
+          <ul className="space-y-1">
+            {insights.strengths.map((s, i) => (
+              <li key={i} className="flex gap-2 text-sm text-violet-700">
+                <span className="text-green-500 flex-shrink-0">✓</span>
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {insights.improvements.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-1">Work on</p>
+          <ul className="space-y-1">
+            {insights.improvements.map((s, i) => (
+              <li key={i} className="flex gap-2 text-sm text-violet-700">
+                <span className="text-amber-500 flex-shrink-0">→</span>
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="rounded-lg bg-violet-100 border border-violet-200 px-3 py-2">
+        <p className="text-xs font-semibold text-violet-600 mb-0.5">Focus next time</p>
+        <p className="text-sm text-violet-800">{insights.keyFocus}</p>
+      </div>
+    </div>
+  )
 }
 
 export default function RecordingsCarousel({
@@ -19,11 +140,49 @@ export default function RecordingsCarousel({
 }) {
   const [index, setIndex] = useState(0)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [insights, setInsights] = useState<Record<string, CoachInsights>>({})
+  const [insightsLoading, setInsightsLoading] = useState<Record<string, boolean>>({})
+  const [insightsError, setInsightsError] = useState<Record<string, string>>({})
 
   if (items.length === 0) return null
 
   const clampedIndex = Math.min(index, items.length - 1)
   const current = items[clampedIndex]
+  const hasInsights = !!insights[current.id]
+  const isLoadingInsights = !!insightsLoading[current.id]
+
+  async function getInsights() {
+    if (!current.signedUrl || isLoadingInsights || hasInsights) return
+    setInsightsLoading(prev => ({ ...prev, [current.id]: true }))
+    setInsightsError(prev => { const n = { ...prev }; delete n[current.id]; return n })
+
+    try {
+      const frames = await extractFrames(current.signedUrl)
+      const res = await fetch('/api/coach-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          frames,
+          drillTitle: current.drillTitle,
+          drillDescription: current.drillDescription,
+          drillInstructions: current.drillInstructions,
+          sport: current.sport,
+          level: current.skillLevel,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const data = await res.json() as CoachInsights
+      setInsights(prev => ({ ...prev, [current.id]: data }))
+    } catch {
+      setInsightsError(prev => ({ ...prev, [current.id]: 'Could not generate insights. Please try again.' }))
+    } finally {
+      setInsightsLoading(prev => { const n = { ...prev }; delete n[current.id]; return n })
+    }
+  }
+
+  function dismissInsights() {
+    setInsights(prev => { const n = { ...prev }; delete n[current.id]; return n })
+  }
 
   return (
     <div>
@@ -124,6 +283,38 @@ export default function RecordingsCarousel({
           ))}
         </div>
       )}
+
+      {/* Coach Insights button */}
+      {!hasInsights && (
+        <button
+          onClick={getInsights}
+          disabled={isLoadingInsights || !current.signedUrl}
+          className={cn(
+            'mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors',
+            isLoadingInsights
+              ? 'border-violet-200 bg-violet-50 text-violet-400 cursor-wait'
+              : 'border-violet-300 text-violet-700 hover:bg-violet-50 disabled:border-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed'
+          )}
+        >
+          {isLoadingInsights ? (
+            <>
+              <div className="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin" />
+              Analyzing performance…
+            </>
+          ) : (
+            <>
+              <span>🧠</span>
+              Get Coach Insights
+            </>
+          )}
+        </button>
+      )}
+
+      {insightsError[current.id] && (
+        <p className="mt-2 text-xs text-red-500 text-center">{insightsError[current.id]}</p>
+      )}
+
+      {hasInsights && <InsightsPanel insights={insights[current.id]} onDismiss={dismissInsights} />}
     </div>
   )
 }
