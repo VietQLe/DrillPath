@@ -80,6 +80,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  const bannedTopics = [
+    'politics',
+    'election',
+    'bitcoin',
+    'porn',
+    'sex',
+    'violence',
+    'bomb',
+    'hack',
+    'code',
+  ]
+
+  const lowerPrompt = prompt.toLowerCase()
+
+  const isBlocked = bannedTopics.some(topic =>
+    lowerPrompt.includes(topic)
+  )
+
+  if (isBlocked) {
+    return NextResponse.json(
+      { error: 'Request outside supported training topics' },
+      { status: 400 }
+    )
+  }
+
   const response = await client.messages.create({
     model: 'claude-opus-4-7',
     max_tokens: 4000,
