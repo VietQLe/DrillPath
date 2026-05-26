@@ -4,13 +4,22 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { DrillRecording } from '@/types'
 
-type RecordState = 'idle' | 'setup' | 'recording' | 'review' | 'uploading'
+type RecordState = 'idle' | 'setup' | 'recording' | 'analyzing' | 'review' | 'uploading'
 
 type CoachInsights = {
   overall: string
   strengths: string[]
   improvements: string[]
   keyFocus: string
+}
+
+type ShotResult = {
+  makes: number
+  misses: number
+  total: number
+  rim_detected: boolean
+  confidence: string
+  note: string
 }
 
 function formatTime(s: number) {
@@ -23,6 +32,37 @@ type DrillContext = {
   instructions?: string[]
   sport?: string
   skillLevel?: string
+}
+
+function ShotCounter({
+  label,
+  value,
+  max,
+  onChange,
+}: {
+  label: string
+  value: number
+  max?: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-xs text-white/60 font-medium">{label}</span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onChange(value - 1)}
+          disabled={value <= 0}
+          className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-30 text-white font-bold text-lg leading-none transition-colors"
+        >−</button>
+        <span className="w-8 text-center text-xl font-bold text-white">{value}</span>
+        <button
+          onClick={() => onChange(value + 1)}
+          disabled={max !== undefined && value >= max}
+          className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 disabled:opacity-30 text-white font-bold text-lg leading-none transition-colors"
+        >+</button>
+      </div>
+    </div>
+  )
 }
 
 export default function DrillRecorder({
@@ -49,6 +89,11 @@ export default function DrillRecorder({
   const [insightsLoading, setInsightsLoading] = useState<Record<string, boolean>>({})
   const [insightsError, setInsightsError] = useState<Record<string, string>>({})
 
+  // Shot analysis state (basketball only)
+  const [detectedMakes, setDetectedMakes] = useState(0)
+  const [detectedAttempts, setDetectedAttempts] = useState(0)
+  const [shotRimDetected, setShotRimDetected] = useState(false)
+
   const liveVideoRef = useRef<HTMLVideoElement>(null)
   const reviewVideoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -57,6 +102,8 @@ export default function DrillRecorder({
   const blobRef = useRef<Blob | null>(null)
   const blobUrlRef = useRef<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const isBasketball = drillContext?.sport === 'basketball'
 
   // Generate signed URLs for existing recordings
   useEffect(() => {
@@ -116,6 +163,76 @@ export default function DrillRecorder({
     await openCamera(next)
   }
 
+  async function extractFramesForShots(videoSrc: string): Promise<string[]> {
+    return new Promise((resolve) => {
+      const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'
+      video.muted = true
+      video.preload = 'auto'
+      let settled = false
+      const done = (frames: string[]) => { if (!settled) { settled = true; resolve(frames) } }
+      const timeout = setTimeout(() => done([]), 20000)
+      video.addEventListener('error', () => { clearTimeout(timeout); done([]) })
+      video.addEventListener('loadedmetadata', () => {
+        const duration = video.duration
+        if (!isFinite(duration) || duration <= 0) { clearTimeout(timeout); done([]); return }
+
+        const MAX = 480
+        const vw = video.videoWidth || 640
+        const vh = video.videoHeight || 360
+        const scale = Math.min(MAX / vw, MAX / vh, 1)
+        const cw = Math.round(vw * scale)
+        const ch = Math.round(vh * scale)
+
+        const canvas = document.createElement('canvas')
+        canvas.width = cw
+        canvas.height = ch
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { clearTimeout(timeout); done([]); return }
+
+        // ~1 frame per second, min 4, max 20
+        const count = Math.min(20, Math.max(4, Math.round(duration)))
+        const timestamps = Array.from({ length: count }, (_, i) => (duration * (i + 0.5)) / count)
+        const frames: string[] = []
+        let idx = 0
+        video.addEventListener('seeked', function onSeeked() {
+          try {
+            ctx.fillStyle = '#000'
+            ctx.fillRect(0, 0, cw, ch)
+            ctx.drawImage(video, 0, 0, cw, ch)
+            frames.push(canvas.toDataURL('image/jpeg', 0.65).split(',')[1])
+          } catch { /* canvas tainted */ }
+          idx++
+          if (idx < timestamps.length) {
+            video.currentTime = timestamps[idx]
+          } else {
+            video.removeEventListener('seeked', onSeeked)
+            clearTimeout(timeout)
+            done(frames)
+          }
+        })
+        video.currentTime = timestamps[0]
+      })
+      video.src = videoSrc
+      video.load()
+    })
+  }
+
+  async function countShotsFromFrames(frames: string[]): Promise<ShotResult | null> {
+    if (frames.length === 0) return null
+    try {
+      const res = await fetch('/api/count-shots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames, drillTitle: drillContext?.title }),
+      })
+      if (!res.ok) return null
+      return await res.json() as ShotResult
+    } catch {
+      return null
+    }
+  }
+
   function startRecording() {
     if (!streamRef.current) return
     chunksRef.current = []
@@ -137,11 +254,28 @@ export default function DrillRecorder({
       const url = URL.createObjectURL(blob)
       blobUrlRef.current = url
       stopStream()
-      setRecordState('review')
-      // set src after state update so the element is visible
-      requestAnimationFrame(() => {
-        if (reviewVideoRef.current) reviewVideoRef.current.src = url
-      })
+
+      if (isBasketball) {
+        setRecordState('analyzing')
+        ;(async () => {
+          const frames = await extractFramesForShots(url)
+          const result = await countShotsFromFrames(frames)
+          if (result && result.total > 0) {
+            setDetectedMakes(result.makes)
+            setDetectedAttempts(result.total)
+            setShotRimDetected(result.rim_detected)
+          }
+          setRecordState('review')
+          requestAnimationFrame(() => {
+            if (reviewVideoRef.current) reviewVideoRef.current.src = url
+          })
+        })()
+      } else {
+        setRecordState('review')
+        requestAnimationFrame(() => {
+          if (reviewVideoRef.current) reviewVideoRef.current.src = url
+        })
+      }
     }
     recorder.start(100)
     recorderRef.current = recorder
@@ -158,6 +292,9 @@ export default function DrillRecorder({
   function retake() {
     blobRef.current = null
     revokeBlobUrl()
+    setDetectedMakes(0)
+    setDetectedAttempts(0)
+    setShotRimDetected(false)
     openCamera()
   }
 
@@ -169,6 +306,9 @@ export default function DrillRecorder({
     setRecordState('idle')
     setElapsed(0)
     setError(null)
+    setDetectedMakes(0)
+    setDetectedAttempts(0)
+    setShotRimDetected(false)
   }
 
   async function save() {
@@ -199,6 +339,34 @@ export default function DrillRecorder({
       setError('Failed to save recording. Please try again.')
       setRecordState('review')
       return
+    }
+
+    // Basketball + shots detected: also mark drill complete with shot data in session_logs
+    if (isBasketball && detectedAttempts > 0) {
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      const { data: existing } = await supabase
+        .from('session_logs')
+        .select('id')
+        .eq('plan_id', planId)
+        .eq('kid_id', kidId)
+        .eq('drill_id', drillId)
+        .gte('completed_at', todayStart.toISOString())
+        .maybeSingle()
+      if (existing) {
+        await supabase
+          .from('session_logs')
+          .update({ shot_attempts: detectedAttempts, shot_makes: detectedMakes })
+          .eq('id', existing.id)
+      } else {
+        await supabase.from('session_logs').insert({
+          kid_id: kidId,
+          drill_id: drillId,
+          plan_id: planId,
+          shot_attempts: detectedAttempts,
+          shot_makes: detectedMakes,
+        })
+      }
     }
 
     if (row) {
@@ -238,7 +406,6 @@ export default function DrillRecorder({
         const duration = video.duration
         if (!isFinite(duration) || duration <= 0) { clearTimeout(timeout); done([]); return }
 
-        // Preserve aspect ratio, cap longer side at 480px
         const MAX = 480
         const vw = video.videoWidth || 640
         const vh = video.videoHeight || 360
@@ -471,7 +638,7 @@ export default function DrillRecorder({
               muted
               playsInline
               className={`w-full h-full object-cover ${
-                recordState === 'review' || recordState === 'uploading' ? 'hidden' : ''
+                recordState === 'review' || recordState === 'uploading' || recordState === 'analyzing' ? 'hidden' : ''
               }`}
             />
             {/* Playback preview */}
@@ -484,8 +651,19 @@ export default function DrillRecorder({
               }`}
             />
 
+            {/* Analyzing overlay */}
+            {recordState === 'analyzing' && (
+              <div className="absolute inset-0 bg-black flex flex-col items-center justify-center gap-4">
+                <div className="w-12 h-12 rounded-full border-2 border-orange-300 border-t-orange-500 animate-spin" />
+                <div className="text-center">
+                  <p className="text-white font-semibold">🏀 Counting shots…</p>
+                  <p className="text-white/50 text-sm mt-1">Analyzing your recording</p>
+                </div>
+              </div>
+            )}
+
             {/* Close button */}
-            {recordState !== 'uploading' && (
+            {recordState !== 'uploading' && recordState !== 'analyzing' && (
               <button
                 onClick={close}
                 className="absolute top-safe-or-4 top-4 right-4 w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center text-2xl leading-none"
@@ -546,10 +724,46 @@ export default function DrillRecorder({
               </>
             )}
 
-            {/* Review: save or retake */}
+            {/* Review: shot counters (basketball) + save/retake */}
             {(recordState === 'review' || recordState === 'uploading') && (
               <>
                 {error && <p className="text-sm text-red-400 mb-1">{error}</p>}
+
+                {isBasketball && (
+                  <div className="w-full max-w-xs">
+                    <p className="text-white/60 text-xs text-center mb-3">
+                      {shotRimDetected
+                        ? '🏀 Auto-detected shots — adjust if needed'
+                        : '🏀 Track your shots (optional)'}
+                    </p>
+                    <div className="flex items-center justify-center gap-6 mb-1">
+                      <ShotCounter
+                        label="Attempts"
+                        value={detectedAttempts}
+                        onChange={(v) => {
+                          const next = Math.max(0, v)
+                          setDetectedAttempts(next)
+                          if (detectedMakes > next) setDetectedMakes(next)
+                        }}
+                      />
+                      <ShotCounter
+                        label="Makes"
+                        value={detectedMakes}
+                        max={detectedAttempts}
+                        onChange={(v) => setDetectedMakes(Math.max(0, Math.min(v, detectedAttempts)))}
+                      />
+                      {detectedAttempts > 0 && (
+                        <div className="text-center">
+                          <div className="text-white text-xl font-bold">
+                            {Math.round((detectedMakes / detectedAttempts) * 100)}%
+                          </div>
+                          <div className="text-white/50 text-xs">made</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex gap-3 w-full max-w-xs">
                   <button
                     onClick={retake}

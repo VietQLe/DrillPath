@@ -28,6 +28,7 @@ export default function DrillChecklist({
   initialCompletedIds,
   initialRating = null,
   initialNotes = null,
+  initialShotStats = null,
   date,
 }: {
   planId: string
@@ -36,6 +37,7 @@ export default function DrillChecklist({
   initialCompletedIds: string[]
   initialRating?: number | null
   initialNotes?: string | null
+  initialShotStats?: Record<string, { attempts: number; makes: number }> | null
   date?: string
 }) {
   const router = useRouter()
@@ -50,6 +52,12 @@ export default function DrillChecklist({
   const [savedNotes, setSavedNotes] = useState<string | null>(initialNotes)
   const [drillGroups, setDrillGroups] = useState<DrillGroup[]>([])
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
+  // Shot tracking: drillId → { attempts, makes }
+  const [pendingShotDrill, setPendingShotDrill] = useState<string | null>(null)
+  const [shotAttempts, setShotAttempts] = useState<Record<string, number>>({})
+  const [shotMakes, setShotMakes] = useState<Record<string, number>>({})
+  // Shot stats for already-completed drills (loaded from DB)
+  const [savedShots, setSavedShots] = useState<Record<string, { attempts: number; makes: number }>>(initialShotStats ?? {})
 
   // Re-fetch completed drill IDs from DB on any session_logs change (trainer or trainee)
   useEffect(() => {
@@ -136,9 +144,23 @@ export default function DrillChecklist({
     return () => { cancelled = true }
   }, [finished])
 
-  async function toggleDrill(drillId: string) {
+  function handleDrillTap(drillId: string, drill: { sport: string }) {
+    if (loading) return
+    if (completedIds.has(drillId)) {
+      // Unchecking: always immediate, no shot tracker
+      toggleDrill(drillId)
+    } else if (drill.sport === 'basketball') {
+      // Basketball completion: open shot tracker first
+      setPendingShotDrill(drillId)
+    } else {
+      toggleDrill(drillId)
+    }
+  }
+
+  async function toggleDrill(drillId: string, shots?: { attempts: number; makes: number }) {
     if (loading) return
     setLoading(drillId)
+    setPendingShotDrill(null)
     const supabase = createClient()
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
@@ -157,6 +179,7 @@ export default function DrillChecklist({
       const next = new Set(completedIds)
       next.delete(drillId)
       setCompletedIds(next)
+      setSavedShots(prev => { const n = { ...prev }; delete n[drillId]; return n })
 
       if (wasAllDone) {
         await supabase
@@ -171,7 +194,13 @@ export default function DrillChecklist({
         kid_id: kidId,
         drill_id: drillId,
         plan_id: planId,
+        shot_attempts: shots?.attempts ?? null,
+        shot_makes: shots?.makes ?? null,
       })
+
+      if (shots) {
+        setSavedShots(prev => ({ ...prev, [drillId]: shots }))
+      }
 
       const next = new Set(completedIds)
       next.add(drillId)
@@ -343,23 +372,32 @@ export default function DrillChecklist({
         const drill = pd.drill
         const done = completedIds.has(pd.drill_id)
         const isLoading = loading === pd.drill_id
+        const isPending = pendingShotDrill === pd.drill_id
+        const isBasketball = drill.sport === 'basketball'
+        const shots = savedShots[pd.drill_id]
+        const pendingAttempts = shotAttempts[pd.drill_id] ?? 0
+        const pendingMakes = shotMakes[pd.drill_id] ?? 0
+        const pendingMisses = Math.max(0, pendingAttempts - pendingMakes)
+        const pendingPct = pendingAttempts > 0 ? Math.round((pendingMakes / pendingAttempts) * 100) : null
 
         return (
           <div
             key={pd.id}
             className={cn(
               'rounded-2xl border transition-all',
-              done ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'
+              isPending ? 'border-orange-300 bg-orange-50' : done ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'
             )}
           >
             <div className="flex items-start gap-3 p-4">
               <button
-                onClick={() => toggleDrill(pd.drill_id)}
+                onClick={() => handleDrillTap(pd.drill_id, drill)}
                 disabled={!!loading}
                 className={cn(
                   'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 font-bold text-sm transition-all border-2',
                   done
                     ? 'bg-green-500 border-green-500 text-white'
+                    : isPending
+                    ? 'border-orange-400 bg-orange-100 text-orange-600'
                     : 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600',
                   isLoading && 'opacity-50 cursor-wait'
                 )}
@@ -399,6 +437,12 @@ export default function DrillChecklist({
                   )}>
                     ⏱ {formatDuration(drill.duration_minutes)}
                   </span>
+                  {/* Shot stats badge on completed basketball drills */}
+                  {done && shots && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
+                      🏀 {shots.makes}/{shots.attempts} ({Math.round((shots.makes / shots.attempts) * 100)}%)
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -410,6 +454,49 @@ export default function DrillChecklist({
                 ℹ
               </Link>
             </div>
+
+            {/* Inline shot tracker — basketball drills only, shown before completing */}
+            {isPending && isBasketball && (
+              <div className="px-4 pb-4 border-t border-orange-200">
+                <p className="text-xs font-semibold text-orange-700 mt-3 mb-3">🏀 Track your shots (optional)</p>
+                <div className="flex items-center gap-4 mb-3">
+                  <ShotCounter
+                    label="Attempts"
+                    value={pendingAttempts}
+                    onChange={v => setShotAttempts(prev => ({ ...prev, [pd.drill_id]: Math.max(0, v) }))}
+                  />
+                  <ShotCounter
+                    label="Makes"
+                    value={pendingMakes}
+                    max={pendingAttempts}
+                    onChange={v => setShotMakes(prev => ({ ...prev, [pd.drill_id]: Math.max(0, Math.min(v, pendingAttempts)) }))}
+                  />
+                  {pendingAttempts > 0 && (
+                    <div className="text-xs text-slate-500 leading-tight">
+                      <div className="font-semibold text-slate-700">{pendingPct}%</div>
+                      <div>{pendingMisses} miss{pendingMisses !== 1 ? 'es' : ''}</div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => toggleDrill(pd.drill_id)}
+                    className="flex-1 py-2 text-sm text-slate-500 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={() => toggleDrill(
+                      pd.drill_id,
+                      pendingAttempts > 0 ? { attempts: pendingAttempts, makes: pendingMakes } : undefined
+                    )}
+                    className="flex-[2] py-2 text-sm font-semibold bg-orange-500 hover:bg-orange-600 text-white rounded-xl transition-colors"
+                  >
+                    {pendingAttempts > 0 ? `Done — ${pendingMakes}/${pendingAttempts}` : 'Mark complete'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )
       })}
@@ -419,6 +506,37 @@ export default function DrillChecklist({
           {drills.length - completedIds.size} drill{drills.length - completedIds.size !== 1 ? 's' : ''} remaining
         </p>
       )}
+    </div>
+  )
+}
+
+function ShotCounter({
+  label,
+  value,
+  max,
+  onChange,
+}: {
+  label: string
+  value: number
+  max?: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-xs text-slate-500 font-medium">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onChange(value - 1)}
+          disabled={value <= 0}
+          className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-30 text-slate-700 font-bold text-base leading-none transition-colors"
+        >−</button>
+        <span className="w-8 text-center text-base font-bold text-slate-900">{value}</span>
+        <button
+          onClick={() => onChange(value + 1)}
+          disabled={max !== undefined && value >= max}
+          className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-30 text-slate-700 font-bold text-base leading-none transition-colors"
+        >+</button>
+      </div>
     </div>
   )
 }

@@ -53,7 +53,7 @@ export default async function WorkoutDetailPage({
   }
 
   const [{ data: todayLogs }, { data: sessionRow }] = await Promise.all([
-    supabase.from('session_logs').select('drill_id')
+    supabase.from('session_logs').select('drill_id, shot_attempts, shot_makes')
       .eq('plan_id', id).eq('kid_id', kid.id)
       .gte('completed_at', dayStart.toISOString()).lte('completed_at', dayEnd.toISOString()),
     supabase.from('workout_sessions').select('rating, notes')
@@ -63,6 +63,14 @@ export default async function WorkoutDetailPage({
   ])
 
   const completedDrillIds = new Set((todayLogs ?? []).map(c => c.drill_id))
+
+  type LogWithShots = { drill_id: string; shot_attempts: number | null; shot_makes: number | null }
+  const initialShotStats: Record<string, { attempts: number; makes: number }> = {}
+  for (const log of (todayLogs ?? []) as LogWithShots[]) {
+    if (log.shot_attempts != null && log.shot_makes != null) {
+      initialShotStats[log.drill_id] = { attempts: log.shot_attempts, makes: log.shot_makes }
+    }
+  }
 
   const drills = ([...(plan.plan_drills ?? [])] as (PlanDrill & { drill: Drill })[])
     .sort((a, b) => a.display_order - b.display_order)
@@ -142,6 +150,7 @@ export default async function WorkoutDetailPage({
           initialCompletedIds={[...completedDrillIds]}
           initialRating={sessionRow?.rating ?? null}
           initialNotes={sessionRow?.notes ?? null}
+          initialShotStats={Object.keys(initialShotStats).length > 0 ? initialShotStats : null}
           date={dateParam}
         />
       )}

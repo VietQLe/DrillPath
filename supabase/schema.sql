@@ -105,7 +105,10 @@ create table if not exists session_logs (
   plan_id uuid references training_plans(id) on delete set null,
   completed_at timestamptz default now(),
   rating integer check (rating between 1 and 3),
-  notes text
+  notes text,
+  shot_attempts integer check (shot_attempts >= 0),
+  shot_makes integer check (shot_makes >= 0),
+  constraint shot_makes_lte_attempts check (shot_makes is null or shot_attempts is null or shot_makes <= shot_attempts)
 );
 
 alter table session_logs enable row level security;
