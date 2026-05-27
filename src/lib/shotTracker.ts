@@ -6,26 +6,20 @@
  * "Rising" = y decreasing. "Falling" = y increasing.
  */
 
-// Ball detection: tight orange range (basketball)
-const BALL_ORANGE = {
-  rMin: 165, rMax: 255,
-  gMin: 55,  gMax: 150,
-  bMin: 0,   bMax: 95,
-  rdiffMin: 75,
-}
+// No fixed color struct for ball — we use ratio-based detection instead (see isBallOrange)
 
-// Rim detection: broader range — rim paint can be more red-orange, and appears
-// darker/desaturated at distance compared to a close-up basketball
+// Rim: slightly broader — metal paint is more matte/darker than a shiny ball,
+// but keep it tight enough to not match sunlit foliage or sandy ground
 const RIM_ORANGE = {
-  rMin: 140, rMax: 255,
-  gMin: 35,  gMax: 160,
-  bMin: 0,   bMax: 110,
-  rdiffMin: 55,
+  rMin: 155, rMax: 255,
+  gMin: 45,  gMax: 155,
+  bMin: 0,   bMax: 100,
+  rdiffMin: 65,
 }
 
-const SAMPLE_STRIDE = 3       // ball pixel scan stride
-const MIN_PIXELS = 30
-const MAX_PIXELS = 2000
+const SAMPLE_STRIDE = 3
+const MIN_BALL_PX = 30
+const MAX_BALL_PX = 2000
 const MIN_ARC_PX = 30
 const RISING_VEL = -1.5
 const FALLING_VEL = 1.5
@@ -33,11 +27,16 @@ const HISTORY_LEN = 60
 const DISAPPEARED_FRAMES = 6
 const FPS_TARGET = 15
 
-// Hoop stability grid — smaller cells (24×18) for better resolution on thin rim
+// Hoop grid — 24×18 cells, ~13px per cell at 320px wide
 const GRID_W = 24
 const GRID_H = 18
 const HOOP_ACCUM_MAX = 20
-const HOOP_THRESHOLD = 10  // lower = detects faster but more false positives
+const HOOP_THRESHOLD = 12
+
+// Minimum horizontal run of stable cells to be considered a rim (≥3 cells ≈ 40px)
+const MIN_RIM_RUN = 3
+// Rim must be in top 65% of frame (not on the ground)
+const MAX_RIM_GY_FRAC = 0.65
 
 type Pos = { x: number; y: number }
 export type Box = { x: number; y: number; w: number; h: number }
@@ -64,7 +63,6 @@ export function createShotTracker() {
 
   const hoopGrid = new Uint8Array(GRID_W * GRID_H)
 
-  // Reusable offscreen canvas
   let offscreen: HTMLCanvasElement | null = null
   let offCtx: CanvasRenderingContext2D | null = null
 
@@ -78,11 +76,25 @@ export function createShotTracker() {
     return offCtx
   }
 
+  // Ratio-based orange detection handles bright new balls AND dull/worn/shadowed ones.
+  //
+  // Rules (in order):
+  //   1. R is the dominant channel (orange is red-led, not yellow or blue)
+  //   2. G < 78% of R — filters skin tones and yellow where G ≈ R
+  //   3. B < G — not pink or purple
+  //   4. R - B ≥ 45 — must have warm red-orange quality (not grey)
+  //   5. R ≥ 110 — not too dark to be a visible ball
+  //   6. G ≥ 30 — not pure red (ball always has some green in its orange)
+  //
+  // Passes: bright new ball (255,100,20), dull worn (160,95,70), dark in shadow (120,75,55)
+  // Fails:  skin tones (G too close to R), grass/sky (B ≥ G or R not dominant)
   function isBallOrange(r: number, g: number, b: number): boolean {
-    return r >= BALL_ORANGE.rMin && r <= BALL_ORANGE.rMax
-      && g >= BALL_ORANGE.gMin && g <= BALL_ORANGE.gMax
-      && b >= BALL_ORANGE.bMin && b <= BALL_ORANGE.bMax
-      && r - b >= BALL_ORANGE.rdiffMin
+    return r > g && r > b           // R dominant
+      && g < r * 0.78               // not yellow / skin tone
+      && b < g                      // not pink / purple
+      && r - b >= 45                // warm orange quality
+      && r >= 110                   // not too dark
+      && g >= 30                    // not pure red
   }
 
   function isRimOrange(r: number, g: number, b: number): boolean {
@@ -92,11 +104,11 @@ export function createShotTracker() {
       && r - b >= RIM_ORANGE.rdiffMin
   }
 
-  // Net is white/off-white nylon; against glass it stands out
+  // Net: bright white/off-white nylon — tight range to avoid matching sky or foliage
   function isNetWhite(r: number, g: number, b: number): boolean {
     const min = Math.min(r, g, b)
     const max = Math.max(r, g, b)
-    return max > 175 && min > 120 && max - min < 65
+    return max > 210 && min > 165 && max - min < 40
   }
 
   function detectBall(data: Uint8ClampedArray, w: number, h: number): { pos: Pos; box: Box } | null {
@@ -116,7 +128,7 @@ export function createShotTracker() {
       }
     }
 
-    if (count < MIN_PIXELS || count > MAX_PIXELS) return null
+    if (count < MIN_BALL_PX || count > MAX_BALL_PX) return null
     return {
       pos: { x: sumX / count, y: sumY / count },
       box: { x: minX, y: minY, w: maxX - minX + SAMPLE_STRIDE, h: maxY - minY + SAMPLE_STRIDE },
@@ -126,22 +138,23 @@ export function createShotTracker() {
   function updateHoopGrid(data: Uint8ClampedArray, w: number, h: number, ballBox: Box | null) {
     const cellW = w / GRID_W
     const cellH = h / GRID_H
+    const maxGY = Math.floor(GRID_H * MAX_RIM_GY_FRAC)
 
-    for (let gy = 0; gy < GRID_H; gy++) {
+    for (let gy = 0; gy < maxGY; gy++) {
       for (let gx = 0; gx < GRID_W; gx++) {
         const x0 = Math.floor(gx * cellW)
         const x1 = Math.floor((gx + 1) * cellW)
         const y0 = Math.floor(gy * cellH)
         const y1 = Math.floor((gy + 1) * cellH)
 
-        // Skip cells overlapping the current ball (don't count ball as hoop)
+        // Don't count the moving ball as the hoop
         if (ballBox
           && x1 > ballBox.x && x0 < ballBox.x + ballBox.w
           && y1 > ballBox.y && y0 < ballBox.y + ballBox.h) {
           continue
         }
 
-        // Stride 1 inside cells — rim is a thin ring, can't afford to skip pixels
+        // Stride 1 — rim is only a few pixels wide, can't skip
         let rimCount = 0
         for (let y = y0; y < y1; y++) {
           for (let x = x0; x < x1; x++) {
@@ -151,8 +164,8 @@ export function createShotTracker() {
         }
 
         const idx = gy * GRID_W + gx
-        // 1 rim pixel per cell is enough — rim appears as a narrow arc
-        if (rimCount >= 1) {
+        if (rimCount >= 2) {
+          // Require ≥2 rim pixels per cell to avoid single-pixel noise from foliage
           hoopGrid[idx] = Math.min(hoopGrid[idx] + 1, HOOP_ACCUM_MAX) as 0
         } else {
           hoopGrid[idx] = Math.max(hoopGrid[idx] - 1, 0) as 0
@@ -164,54 +177,65 @@ export function createShotTracker() {
   function computeHoopBox(data: Uint8ClampedArray, w: number, h: number): Box | null {
     const cellW = w / GRID_W
     const cellH = h / GRID_H
-    let minGX = GRID_W, maxGX = -1, minGY = GRID_H, maxGY = -1
+    const maxGY = Math.floor(GRID_H * MAX_RIM_GY_FRAC)
 
-    for (let gy = 0; gy < GRID_H; gy++) {
-      for (let gx = 0; gx < GRID_W; gx++) {
-        if (hoopGrid[gy * GRID_W + gx] >= HOOP_THRESHOLD) {
-          if (gx < minGX) minGX = gx
-          if (gx > maxGX) maxGX = gx
-          if (gy < minGY) minGY = gy
-          if (gy > maxGY) maxGY = gy
+    // Find the longest HORIZONTAL run of triggered cells in the upper frame.
+    // The rim is a horizontal arc — scattered individual cells are noise/foliage.
+    let bestRun = { gx0: 0, gx1: 0, gy: 0, len: 0 }
+
+    for (let gy = 0; gy < maxGY; gy++) {
+      let runStart = -1
+      let runLen = 0
+      for (let gx = 0; gx <= GRID_W; gx++) {
+        const triggered = gx < GRID_W && hoopGrid[gy * GRID_W + gx] >= HOOP_THRESHOLD
+        if (triggered) {
+          if (runStart === -1) runStart = gx
+          runLen++
+        } else {
+          if (runLen > bestRun.len) {
+            bestRun = { gx0: runStart, gx1: gx - 1, gy, len: runLen }
+          }
+          runStart = -1
+          runLen = 0
         }
       }
     }
 
-    if (maxGX === -1) return null
-    if (maxGX - minGX < 1 && maxGY - minGY < 1) return null  // too small
+    if (bestRun.len < MIN_RIM_RUN) return null
 
     const rimBox: Box = {
-      x: minGX * cellW,
-      y: minGY * cellH,
-      w: (maxGX - minGX + 1) * cellW,
-      h: (maxGY - minGY + 1) * cellH,
+      x: bestRun.gx0 * cellW,
+      y: bestRun.gy * cellH,
+      w: (bestRun.gx1 - bestRun.gx0 + 1) * cellW,
+      h: cellH * 1.5,
     }
 
-    // Extend box downward to include the net (white pixels below the rim)
-    const netSearchY0 = Math.round(rimBox.y + rimBox.h)
-    const netSearchY1 = Math.min(h, Math.round(rimBox.y + rimBox.h + rimBox.h * 4))
-    const netSearchX0 = Math.round(rimBox.x)
-    const netSearchX1 = Math.min(w, Math.round(rimBox.x + rimBox.w))
+    // Width sanity: rim should be 5–40% of frame width (not a wall or a tiny speck)
+    const rimWidthFrac = rimBox.w / w
+    if (rimWidthFrac < 0.05 || rimWidthFrac > 0.40) return null
 
-    let lowestNetY = netSearchY0
-    for (let y = netSearchY0; y < netSearchY1; y += 2) {
+    // Aspect: rim must be wider than tall (at least 1.5:1)
+    if (rimBox.w < rimBox.h * 1.5) return null
+
+    // Extend down to include net (white nylon below the rim).
+    // Cap search to max 25px below rim — net doesn't hang far at this scale.
+    const netY0 = Math.round(rimBox.y + rimBox.h)
+    const netY1 = Math.min(h, netY0 + 25)
+    const netX0 = Math.round(rimBox.x)
+    const netX1 = Math.min(w, Math.round(rimBox.x + rimBox.w))
+
+    let lowestNetY = netY0
+    for (let y = netY0; y < netY1; y += 2) {
       let rowWhite = 0
-      for (let x = netSearchX0; x < netSearchX1; x += 2) {
+      for (let x = netX0; x < netX1; x += 2) {
         const i = (y * w + x) * 4
         if (isNetWhite(data[i], data[i + 1], data[i + 2])) rowWhite++
       }
-      // Row has enough white pixels to be part of the net
-      if (rowWhite >= 3) lowestNetY = y
+      if (rowWhite >= 4) lowestNetY = y
     }
 
-    if (lowestNetY > netSearchY0) {
-      // Expand hoop box to include the net
-      return {
-        x: rimBox.x,
-        y: rimBox.y,
-        w: rimBox.w,
-        h: lowestNetY - rimBox.y + 4,
-      }
+    if (lowestNetY > netY0) {
+      return { x: rimBox.x, y: rimBox.y, w: rimBox.w, h: lowestNetY - rimBox.y + 4 }
     }
 
     return rimBox
