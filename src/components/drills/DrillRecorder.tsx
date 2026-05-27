@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { createShotTracker, type ShotCounts } from '@/lib/shotTracker'
+import { createShotTracker, type ShotCounts, type Box } from '@/lib/shotTracker'
 import type { DrillRecording } from '@/types'
 
 type RecordState = 'idle' | 'setup' | 'recording' | 'review' | 'uploading'
@@ -82,7 +82,7 @@ export default function DrillRecorder({
   const [insightsError, setInsightsError] = useState<Record<string, string>>({})
 
   // Shot counting state
-  const [liveShots, setLiveShots] = useState<ShotCounts>({ attempts: 0, ballDetected: false })
+  const [liveShots, setLiveShots] = useState<ShotCounts>({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
   const [reviewAttempts, setReviewAttempts] = useState(0)
   const [reviewMakes, setReviewMakes] = useState(0)
 
@@ -95,6 +95,7 @@ export default function DrillRecorder({
   const blobUrlRef = useRef<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const rafRef = useRef<number | null>(null)
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const trackerRef = useRef(createShotTracker())
 
   const isBasketball = drillContext?.sport === 'basketball'
@@ -128,22 +129,89 @@ export default function DrillRecorder({
     }
   }, [])
 
+  function drawOverlay(ballBox: Box | null, hoopBox: Box | null) {
+    const canvas = overlayCanvasRef.current
+    const video = liveVideoRef.current
+    if (!canvas || !video || video.videoWidth === 0) return
+
+    const rect = video.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
+    const cw = Math.round(rect.width * dpr)
+    const ch = Math.round(rect.height * dpr)
+
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw
+      canvas.height = ch
+    }
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Use DPR-aware transform so coordinates are in CSS pixels
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, rect.width, rect.height)
+
+    // Map from processed-frame coords (320px wide) to display coords (object-cover)
+    const procW = 320
+    const procH = Math.round(320 * video.videoHeight / video.videoWidth)
+    const scale = Math.max(rect.width / procW, rect.height / procH)
+    const offX = (procW * scale - rect.width) / 2
+    const offY = (procH * scale - rect.height) / 2
+
+    const px = (x: number) => x * scale - offX
+    const py = (y: number) => y * scale - offY
+    const ps = (n: number) => n * scale
+
+    function drawBox(box: Box, color: string, label: string) {
+      const c = ctx! // non-null: checked above before drawBox is called
+      const bx = px(box.x), by = py(box.y), bw = ps(box.w), bh = ps(box.h)
+      c.strokeStyle = color
+      c.lineWidth = 2
+      c.setLineDash([5, 3])
+      c.strokeRect(bx, by, bw, bh)
+      c.setLineDash([])
+
+      // Label pill above the box
+      c.font = 'bold 10px system-ui, sans-serif'
+      const tw = c.measureText(label).width
+      const lx = bx, ly = by - 16
+      c.fillStyle = 'rgba(0,0,0,0.55)'
+      c.beginPath()
+      c.roundRect(lx, ly, tw + 8, 14, 4)
+      c.fill()
+      c.fillStyle = color
+      c.fillText(label, lx + 4, ly + 10)
+    }
+
+    if (hoopBox) drawBox(hoopBox, '#4ade80', 'HOOP')  // green
+    if (ballBox) drawBox(ballBox, '#fb923c', 'BALL')   // orange
+  }
+
+  function clearOverlay() {
+    const canvas = overlayCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
   function stopTracking() {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
+    clearOverlay()
   }
 
   function startTracking() {
     trackerRef.current.reset()
-    setLiveShots({ attempts: 0, ballDetected: false })
+    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
 
     function loop() {
       const video = liveVideoRef.current
       if (video && video.readyState >= 2) {
         const counts = trackerRef.current.processFrame(video)
         setLiveShots(counts)
+        drawOverlay(counts.ballBox, counts.hoopBox)
       }
       rafRef.current = requestAnimationFrame(loop)
     }
@@ -230,7 +298,7 @@ export default function DrillRecorder({
     revokeBlobUrl()
     setReviewAttempts(0)
     setReviewMakes(0)
-    setLiveShots({ attempts: 0, ballDetected: false })
+    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
     openCamera()
   }
 
@@ -245,7 +313,7 @@ export default function DrillRecorder({
     setError(null)
     setReviewAttempts(0)
     setReviewMakes(0)
-    setLiveShots({ attempts: 0, ballDetected: false })
+    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
   }
 
   async function save() {
@@ -546,6 +614,16 @@ export default function DrillRecorder({
                 recordState === 'review' || recordState === 'uploading' ? 'hidden' : ''
               }`}
             />
+
+            {/* Ball + hoop tracking overlay (basketball, recording only) */}
+            {isBasketball && (
+              <canvas
+                ref={overlayCanvasRef}
+                className={`absolute inset-0 w-full h-full pointer-events-none ${
+                  recordState !== 'recording' ? 'opacity-0' : ''
+                }`}
+              />
+            )}
             {/* Playback preview */}
             <video
               ref={reviewVideoRef}
