@@ -6,28 +6,38 @@
  * "Rising" = y decreasing. "Falling" = y increasing.
  */
 
-const ORANGE = {
+// Ball detection: tight orange range (basketball)
+const BALL_ORANGE = {
   rMin: 165, rMax: 255,
   gMin: 55,  gMax: 150,
   bMin: 0,   bMax: 95,
-  rdiffMin: 75, // r - b must exceed this
+  rdiffMin: 75,
 }
 
-const SAMPLE_STRIDE = 3      // sample every Nth pixel for performance
-const MIN_PIXELS = 30        // min orange pixels (after sampling) to detect a ball
-const MAX_PIXELS = 2000      // max (filters large orange objects — jerseys, signage)
-const MIN_ARC_PX = 30        // min pixel rise to count as a shot (not a dribble)
-const RISING_VEL = -1.5      // px/frame threshold for "rising"
-const FALLING_VEL = 1.5      // px/frame threshold for "falling"
+// Rim detection: broader range — rim paint can be more red-orange, and appears
+// darker/desaturated at distance compared to a close-up basketball
+const RIM_ORANGE = {
+  rMin: 140, rMax: 255,
+  gMin: 35,  gMax: 160,
+  bMin: 0,   bMax: 110,
+  rdiffMin: 55,
+}
+
+const SAMPLE_STRIDE = 3       // ball pixel scan stride
+const MIN_PIXELS = 30
+const MAX_PIXELS = 2000
+const MIN_ARC_PX = 30
+const RISING_VEL = -1.5
+const FALLING_VEL = 1.5
 const HISTORY_LEN = 60
-const DISAPPEARED_FRAMES = 6 // frames with no ball after falling arc = probable make
+const DISAPPEARED_FRAMES = 6
 const FPS_TARGET = 15
 
-// Hoop stability detection: grid cells that are consistently orange = hoop
-const GRID_W = 20
-const GRID_H = 15
-const HOOP_ACCUM_MAX = 25  // max accumulation per cell
-const HOOP_THRESHOLD = 15  // cells at/above this = part of hoop region
+// Hoop stability grid — smaller cells (24×18) for better resolution on thin rim
+const GRID_W = 24
+const GRID_H = 18
+const HOOP_ACCUM_MAX = 20
+const HOOP_THRESHOLD = 10  // lower = detects faster but more false positives
 
 type Pos = { x: number; y: number }
 export type Box = { x: number; y: number; w: number; h: number }
@@ -52,10 +62,9 @@ export function createShotTracker() {
   let lastHoopBox: Box | null = null
   let ballLastSeen = false
 
-  // Hoop grid: accumulates orange presence across frames (static regions = hoop)
   const hoopGrid = new Uint8Array(GRID_W * GRID_H)
 
-  // Reusable offscreen canvas to avoid GC churn at 15fps
+  // Reusable offscreen canvas
   let offscreen: HTMLCanvasElement | null = null
   let offCtx: CanvasRenderingContext2D | null = null
 
@@ -69,11 +78,25 @@ export function createShotTracker() {
     return offCtx
   }
 
-  function isOrange(r: number, g: number, b: number): boolean {
-    return r >= ORANGE.rMin && r <= ORANGE.rMax
-      && g >= ORANGE.gMin && g <= ORANGE.gMax
-      && b >= ORANGE.bMin && b <= ORANGE.bMax
-      && r - b >= ORANGE.rdiffMin
+  function isBallOrange(r: number, g: number, b: number): boolean {
+    return r >= BALL_ORANGE.rMin && r <= BALL_ORANGE.rMax
+      && g >= BALL_ORANGE.gMin && g <= BALL_ORANGE.gMax
+      && b >= BALL_ORANGE.bMin && b <= BALL_ORANGE.bMax
+      && r - b >= BALL_ORANGE.rdiffMin
+  }
+
+  function isRimOrange(r: number, g: number, b: number): boolean {
+    return r >= RIM_ORANGE.rMin && r <= RIM_ORANGE.rMax
+      && g >= RIM_ORANGE.gMin && g <= RIM_ORANGE.gMax
+      && b >= RIM_ORANGE.bMin && b <= RIM_ORANGE.bMax
+      && r - b >= RIM_ORANGE.rdiffMin
+  }
+
+  // Net is white/off-white nylon; against glass it stands out
+  function isNetWhite(r: number, g: number, b: number): boolean {
+    const min = Math.min(r, g, b)
+    const max = Math.max(r, g, b)
+    return max > 175 && min > 120 && max - min < 65
   }
 
   function detectBall(data: Uint8ClampedArray, w: number, h: number): { pos: Pos; box: Box } | null {
@@ -83,7 +106,7 @@ export function createShotTracker() {
     for (let y = 0; y < h; y += SAMPLE_STRIDE) {
       for (let x = 0; x < w; x += SAMPLE_STRIDE) {
         const i = (y * w + x) * 4
-        if (isOrange(data[i], data[i + 1], data[i + 2])) {
+        if (isBallOrange(data[i], data[i + 1], data[i + 2])) {
           sumX += x; sumY += y; count++
           if (x < minX) minX = x
           if (x > maxX) maxX = x
@@ -96,12 +119,7 @@ export function createShotTracker() {
     if (count < MIN_PIXELS || count > MAX_PIXELS) return null
     return {
       pos: { x: sumX / count, y: sumY / count },
-      box: {
-        x: minX,
-        y: minY,
-        w: maxX - minX + SAMPLE_STRIDE,
-        h: maxY - minY + SAMPLE_STRIDE,
-      },
+      box: { x: minX, y: minY, w: maxX - minX + SAMPLE_STRIDE, h: maxY - minY + SAMPLE_STRIDE },
     }
   }
 
@@ -123,16 +141,18 @@ export function createShotTracker() {
           continue
         }
 
-        let orangeCount = 0
-        for (let y = y0; y < y1; y += 2) {
-          for (let x = x0; x < x1; x += 2) {
+        // Stride 1 inside cells — rim is a thin ring, can't afford to skip pixels
+        let rimCount = 0
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
             const i = (y * w + x) * 4
-            if (isOrange(data[i], data[i + 1], data[i + 2])) orangeCount++
+            if (isRimOrange(data[i], data[i + 1], data[i + 2])) rimCount++
           }
         }
 
         const idx = gy * GRID_W + gx
-        if (orangeCount >= 2) {
+        // 1 rim pixel per cell is enough — rim appears as a narrow arc
+        if (rimCount >= 1) {
           hoopGrid[idx] = Math.min(hoopGrid[idx] + 1, HOOP_ACCUM_MAX) as 0
         } else {
           hoopGrid[idx] = Math.max(hoopGrid[idx] - 1, 0) as 0
@@ -141,7 +161,7 @@ export function createShotTracker() {
     }
   }
 
-  function computeHoopBox(w: number, h: number): Box | null {
+  function computeHoopBox(data: Uint8ClampedArray, w: number, h: number): Box | null {
     const cellW = w / GRID_W
     const cellH = h / GRID_H
     let minGX = GRID_W, maxGX = -1, minGY = GRID_H, maxGY = -1
@@ -158,16 +178,43 @@ export function createShotTracker() {
     }
 
     if (maxGX === -1) return null
+    if (maxGX - minGX < 1 && maxGY - minGY < 1) return null  // too small
 
-    // Require at least 2 grid cells wide or tall (filter noise)
-    if (maxGX - minGX < 1 && maxGY - minGY < 1) return null
-
-    return {
+    const rimBox: Box = {
       x: minGX * cellW,
       y: minGY * cellH,
       w: (maxGX - minGX + 1) * cellW,
       h: (maxGY - minGY + 1) * cellH,
     }
+
+    // Extend box downward to include the net (white pixels below the rim)
+    const netSearchY0 = Math.round(rimBox.y + rimBox.h)
+    const netSearchY1 = Math.min(h, Math.round(rimBox.y + rimBox.h + rimBox.h * 4))
+    const netSearchX0 = Math.round(rimBox.x)
+    const netSearchX1 = Math.min(w, Math.round(rimBox.x + rimBox.w))
+
+    let lowestNetY = netSearchY0
+    for (let y = netSearchY0; y < netSearchY1; y += 2) {
+      let rowWhite = 0
+      for (let x = netSearchX0; x < netSearchX1; x += 2) {
+        const i = (y * w + x) * 4
+        if (isNetWhite(data[i], data[i + 1], data[i + 2])) rowWhite++
+      }
+      // Row has enough white pixels to be part of the net
+      if (rowWhite >= 3) lowestNetY = y
+    }
+
+    if (lowestNetY > netSearchY0) {
+      // Expand hoop box to include the net
+      return {
+        x: rimBox.x,
+        y: rimBox.y,
+        w: rimBox.w,
+        h: lowestNetY - rimBox.y + 4,
+      }
+    }
+
+    return rimBox
   }
 
   function avgYVelocity(n = 4): number {
@@ -180,7 +227,6 @@ export function createShotTracker() {
     if (arcStartY - arcPeakY >= MIN_ARC_PX) attempts++
   }
 
-  /** Call every animation frame with the live <video> element. */
   function processFrame(video: HTMLVideoElement): ShotCounts {
     const now = performance.now()
     if (now - lastProcessTime < 1000 / FPS_TARGET) {
@@ -204,7 +250,7 @@ export function createShotTracker() {
     const ballBox = ballResult?.box ?? null
 
     updateHoopGrid(data, w, h, ballBox)
-    const hoopBox = computeHoopBox(w, h)
+    const hoopBox = computeHoopBox(data, w, h)
 
     lastBallBox = ballBox
     lastHoopBox = hoopBox
@@ -230,9 +276,7 @@ export function createShotTracker() {
 
     switch (phase) {
       case 'idle':
-        if (vel < RISING_VEL) {
-          phase = 'rising'; arcStartY = ball.y; arcPeakY = ball.y
-        }
+        if (vel < RISING_VEL) { phase = 'rising'; arcStartY = ball.y; arcPeakY = ball.y }
         break
       case 'rising':
         if (ball.y < arcPeakY) arcPeakY = ball.y
