@@ -5,7 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 import { createShotTracker, type ShotCounts, type Box } from '@/lib/shotTracker'
 import type { DrillRecording } from '@/types'
 
-type RecordState = 'idle' | 'setup' | 'recording' | 'review' | 'uploading'
+type RecordState = 'idle' | 'context' | 'setup' | 'recording' | 'review' | 'uploading'
+
+type CourtType = 'indoor_gym' | 'outdoor_driveway' | 'outdoor_court'
+const COURT_TYPES: { id: CourtType; icon: string; label: string }[] = [
+  { id: 'indoor_gym',        icon: '🏫', label: 'Indoor Gym'    },
+  { id: 'outdoor_driveway',  icon: '🏠', label: 'Driveway'      },
+  { id: 'outdoor_court',     icon: '⛹️', label: 'Outdoor Court' },
+]
 
 type CoachInsights = {
   overall: string
@@ -85,6 +92,15 @@ export default function DrillRecorder({
   const [liveShots, setLiveShots] = useState<ShotCounts>({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
   const [reviewAttempts, setReviewAttempts] = useState(0)
   const [reviewMakes, setReviewMakes] = useState(0)
+  const [courtType, setCourtType] = useState<CourtType | null>(null)
+  const [isLandscape, setIsLandscape] = useState(false)
+
+  useEffect(() => {
+    const check = () => setIsLandscape(window.innerWidth > window.innerHeight)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   const liveVideoRef = useRef<HTMLVideoElement>(null)
   const reviewVideoRef = useRef<HTMLVideoElement>(null)
@@ -314,6 +330,7 @@ export default function DrillRecorder({
     setReviewAttempts(0)
     setReviewMakes(0)
     setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
+    setCourtType(null)
   }
 
   async function save() {
@@ -592,7 +609,7 @@ export default function DrillRecorder({
           </p>
           {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
           <button
-            onClick={() => openCamera()}
+            onClick={() => setRecordState('context')}
             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors"
           >
             <span>●</span> Start recording
@@ -603,193 +620,281 @@ export default function DrillRecorder({
       {/* Full-screen camera modal */}
       {inModal && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
-          <div className="flex-1 relative overflow-hidden">
-            {/* Live preview */}
-            <video
-              ref={liveVideoRef}
-              autoPlay
-              muted
-              playsInline
-              className={`w-full h-full object-cover ${
-                recordState === 'review' || recordState === 'uploading' ? 'hidden' : ''
-              }`}
-            />
 
-            {/* Hoop alignment guide — setup phase only */}
-            {isBasketball && recordState === 'setup' && (
-              <div className="absolute inset-0 pointer-events-none flex flex-col items-center">
-                {/* Guide box: upper-center, where the rim should sit */}
-                <div
-                  className="absolute border-2 border-dashed border-yellow-400 rounded-lg"
-                  style={{ left: '20%', right: '20%', top: '8%', bottom: '42%' }}
-                >
-                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                    <span className="bg-yellow-400 text-black text-xs font-bold px-2 py-0.5 rounded-full">
-                      Place hoop here
-                    </span>
+          {/* ── Context / setup questionnaire ── */}
+          {recordState === 'context' && (
+            <div className="flex-1 overflow-y-auto px-5 py-8 flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-white text-xl font-bold">Set up shot tracking</h2>
+                  <p className="text-white/50 text-sm mt-0.5">We&apos;ll count attempts automatically</p>
+                </div>
+                <button onClick={close} className="w-9 h-9 rounded-full bg-white/10 text-white flex items-center justify-center text-xl leading-none" aria-label="Close">×</button>
+              </div>
+
+              {/* Court type */}
+              <p className="text-white/70 text-sm font-semibold mb-3">Where are you shooting?</p>
+              <div className="grid grid-cols-3 gap-3 mb-8">
+                {COURT_TYPES.map((ct) => (
+                  <button
+                    key={ct.id}
+                    onClick={() => setCourtType(ct.id)}
+                    className={`flex flex-col items-center gap-2 py-4 rounded-2xl border-2 transition-colors ${
+                      courtType === ct.id
+                        ? 'border-orange-400 bg-orange-400/15'
+                        : 'border-white/15 bg-white/5 hover:bg-white/10'
+                    }`}
+                  >
+                    <span className="text-3xl">{ct.icon}</span>
+                    <span className="text-white text-xs font-semibold">{ct.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Camera placement instructions */}
+              <div className="rounded-2xl bg-white/8 border border-white/10 p-4 mb-8 space-y-4">
+                <p className="text-white font-semibold text-sm">Camera placement</p>
+                <div className="flex items-start gap-3">
+                  <span className="text-xl mt-0.5">📱</span>
+                  <div>
+                    <p className="text-white text-sm font-medium">Landscape mode</p>
+                    <p className="text-white/50 text-xs mt-0.5">Rotate your phone sideways before recording</p>
                   </div>
-                  {/* Corner accent marks */}
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-300 rounded-tl" />
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-yellow-300 rounded-tr" />
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-yellow-300 rounded-bl" />
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-yellow-300 rounded-br" />
                 </div>
-                {/* Hint at bottom */}
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                  <span className="bg-black/60 text-white/80 text-xs px-3 py-1 rounded-full">
-                    Keep hoop in frame while shooting
-                  </span>
+                <div className="flex items-start gap-3">
+                  <span className="text-xl mt-0.5">📍</span>
+                  <div>
+                    <p className="text-white text-sm font-medium">Beyond the 3-point line</p>
+                    <p className="text-white/50 text-xs mt-0.5">Set the phone on the ground or a tripod — far enough to see the full arc of your shot</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-xl mt-0.5">🎯</span>
+                  <div>
+                    <p className="text-white text-sm font-medium">Point at the basket</p>
+                    <p className="text-white/50 text-xs mt-0.5">Keep the hoop in the upper half of the frame at all times</p>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {/* Ball + hoop tracking overlay (basketball, recording only) */}
-            {isBasketball && (
-              <canvas
-                ref={overlayCanvasRef}
-                className={`absolute inset-0 w-full h-full pointer-events-none ${
-                  recordState !== 'recording' ? 'opacity-0' : ''
-                }`}
-              />
-            )}
-            {/* Playback preview */}
-            <video
-              ref={reviewVideoRef}
-              controls
-              playsInline
-              className={`w-full h-full object-cover ${
-                recordState !== 'review' && recordState !== 'uploading' ? 'hidden' : ''
-              }`}
-            />
-
-            {/* Close button */}
-            {recordState !== 'uploading' && (
-              <button
-                onClick={close}
-                className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center text-2xl leading-none"
-                aria-label="Close"
-              >×</button>
-            )}
-
-            {/* Recording timer */}
-            {recordState === 'recording' && (
-              <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-white text-sm font-mono">{formatTime(elapsed)}</span>
-              </div>
-            )}
-
-            {/* Live shot counter badge (basketball only) */}
-            {recordState === 'recording' && isBasketball && (
-              <div className={`absolute top-4 right-16 flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
-                liveShots.ballDetected ? 'bg-orange-500/80' : 'bg-black/60'
-              }`}>
-                <span className="text-base leading-none">🏀</span>
-                <span className="text-white text-sm font-mono tabular-nums font-semibold">
-                  {liveShots.attempts}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Controls */}
-          <div className="p-6 pb-10 flex flex-col items-center gap-3">
-            {recordState === 'setup' && (
-              <>
-                <div className="flex items-center gap-8">
-                  <button
-                    onClick={flipCamera}
-                    className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
-                    aria-label="Flip camera"
-                  >
-                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={startRecording}
-                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
-                    aria-label="Start recording"
-                  >
-                    <span className="w-6 h-6 rounded-full bg-white" />
-                  </button>
-                  <div className="w-11 h-11" />
-                </div>
-                <p className="text-white/60 text-sm">Tap to start recording</p>
-              </>
-            )}
-
-            {recordState === 'recording' && (
-              <>
+              <div className="mt-auto">
                 <button
-                  onClick={stopRecording}
-                  className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
-                  aria-label="Stop recording"
+                  onClick={() => openCamera()}
+                  disabled={!courtType}
+                  className="w-full py-4 rounded-2xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold text-base transition-colors"
                 >
-                  <span className="w-5 h-5 rounded-sm bg-white" />
+                  Open Camera →
                 </button>
-                <p className="text-white/60 text-sm">
-                  {isBasketball ? 'Shot counter active — tap to stop' : 'Tap to stop'}
-                </p>
-              </>
-            )}
+                {!courtType && (
+                  <p className="text-white/40 text-xs text-center mt-2">Select a court type to continue</p>
+                )}
+              </div>
+            </div>
+          )}
 
-            {(recordState === 'review' || recordState === 'uploading') && (
-              <>
-                {error && <p className="text-sm text-red-400 mb-1">{error}</p>}
+          {/* ── Camera view (setup / recording / review) ── */}
+          {recordState !== 'context' && (
+            <>
+              <div className="flex-1 relative overflow-hidden">
+                {/* Live preview */}
+                <video
+                  ref={liveVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className={`w-full h-full object-cover ${
+                    recordState === 'review' || recordState === 'uploading' ? 'hidden' : ''
+                  }`}
+                />
 
-                {isBasketball && (
-                  <div className="w-full max-w-xs">
-                    <p className="text-white/60 text-xs text-center mb-3">
-                      🏀 {reviewAttempts > 0 ? `Detected ${reviewAttempts} shot${reviewAttempts !== 1 ? 's' : ''} — how many went in?` : 'Track your shots'}
-                    </p>
-                    <div className="flex items-center justify-center gap-6 mb-1">
-                      <ShotCounter
-                        label="Attempts"
-                        value={reviewAttempts}
-                        onChange={(v) => {
-                          const next = Math.max(0, v)
-                          setReviewAttempts(next)
-                          if (reviewMakes > next) setReviewMakes(next)
-                        }}
-                      />
-                      <ShotCounter
-                        label="Makes"
-                        value={reviewMakes}
-                        max={reviewAttempts}
-                        onChange={(v) => setReviewMakes(Math.max(0, Math.min(v, reviewAttempts)))}
-                      />
-                      {reviewAttempts > 0 && (
-                        <div className="text-center">
-                          <div className="text-white text-xl font-bold">
-                            {Math.round((reviewMakes / reviewAttempts) * 100)}%
-                          </div>
-                          <div className="text-white/50 text-xs">made</div>
-                        </div>
-                      )}
+                {/* Landscape warning — setup only */}
+                {recordState === 'setup' && !isLandscape && (
+                  <div className="absolute inset-0 z-10 bg-black/85 flex flex-col items-center justify-center gap-3 pointer-events-none">
+                    <span className="text-6xl" style={{ display: 'inline-block', transform: 'rotate(-90deg)' }}>📱</span>
+                    <p className="text-white text-lg font-bold">Rotate to landscape</p>
+                    <p className="text-white/50 text-sm text-center px-10">Landscape mode gives the best view for tracking shots</p>
+                  </div>
+                )}
+
+                {/* Hoop alignment guide — setup + landscape only */}
+                {isBasketball && recordState === 'setup' && isLandscape && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {/* Small hoop zone: upper-center, reflects actual hoop size from 3pt line */}
+                    <div
+                      className="absolute border-2 border-dashed border-yellow-400 rounded-lg"
+                      style={{ left: '37%', right: '37%', top: '6%', height: '38%' }}
+                    >
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1">
+                        <span className="bg-yellow-400 text-black text-xs font-bold px-2 py-0.5 rounded-full">
+                          🏀 Hoop
+                        </span>
+                      </div>
+                      <div className="absolute top-0 left-0 w-3 h-3 border-t-4 border-l-4 border-yellow-300" />
+                      <div className="absolute top-0 right-0 w-3 h-3 border-t-4 border-r-4 border-yellow-300" />
+                      <div className="absolute bottom-0 left-0 w-3 h-3 border-b-4 border-l-4 border-yellow-300" />
+                      <div className="absolute bottom-0 right-0 w-3 h-3 border-b-4 border-r-4 border-yellow-300" />
+                    </div>
+                    <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                      <span className="bg-black/60 text-white/80 text-xs px-3 py-1 rounded-full">
+                        Back up until you can see the full shooting arc
+                      </span>
                     </div>
                   </div>
                 )}
 
-                <div className="flex gap-3 w-full max-w-xs">
+                {/* Ball + hoop tracking overlay (basketball, recording only) */}
+                {isBasketball && (
+                  <canvas
+                    ref={overlayCanvasRef}
+                    className={`absolute inset-0 w-full h-full pointer-events-none ${
+                      recordState !== 'recording' ? 'opacity-0' : ''
+                    }`}
+                  />
+                )}
+
+                {/* Playback preview */}
+                <video
+                  ref={reviewVideoRef}
+                  controls
+                  playsInline
+                  className={`w-full h-full object-cover ${
+                    recordState !== 'review' && recordState !== 'uploading' ? 'hidden' : ''
+                  }`}
+                />
+
+                {/* Close button */}
+                {recordState !== 'uploading' && (
                   <button
-                    onClick={retake}
-                    disabled={recordState === 'uploading'}
-                    className="flex-1 py-3 rounded-xl border-2 border-white/30 text-white font-semibold disabled:opacity-40 transition-colors"
-                  >
-                    Retake
-                  </button>
-                  <button
-                    onClick={save}
-                    disabled={recordState === 'uploading'}
-                    className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-40 transition-colors"
-                  >
-                    {recordState === 'uploading' ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+                    onClick={close}
+                    className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center text-2xl leading-none"
+                    aria-label="Close"
+                  >×</button>
+                )}
+
+                {/* Recording timer */}
+                {recordState === 'recording' && (
+                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 rounded-full px-3 py-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-white text-sm font-mono">{formatTime(elapsed)}</span>
+                  </div>
+                )}
+
+                {/* Live shot counter badge (basketball only) */}
+                {recordState === 'recording' && isBasketball && (
+                  <div className={`absolute top-4 right-16 flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors ${
+                    liveShots.ballDetected ? 'bg-orange-500/80' : 'bg-black/60'
+                  }`}>
+                    <span className="text-base leading-none">🏀</span>
+                    <span className="text-white text-sm font-mono tabular-nums font-semibold">
+                      {liveShots.attempts}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Controls */}
+              <div className="p-6 pb-10 flex flex-col items-center gap-3">
+                {recordState === 'setup' && (
+                  <>
+                    <div className="flex items-center gap-8">
+                      <button
+                        onClick={flipCamera}
+                        className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                        aria-label="Flip camera"
+                      >
+                        <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={startRecording}
+                        disabled={isBasketball && !isLandscape}
+                        className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 disabled:opacity-40 flex items-center justify-center transition-colors"
+                        aria-label="Start recording"
+                      >
+                        <span className="w-6 h-6 rounded-full bg-white" />
+                      </button>
+                      <div className="w-11 h-11" />
+                    </div>
+                    <p className="text-white/60 text-sm">
+                      {isBasketball && !isLandscape ? 'Rotate to landscape to record' : 'Tap to start recording'}
+                    </p>
+                  </>
+                )}
+
+                {recordState === 'recording' && (
+                  <>
+                    <button
+                      onClick={stopRecording}
+                      className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
+                      aria-label="Stop recording"
+                    >
+                      <span className="w-5 h-5 rounded-sm bg-white" />
+                    </button>
+                    <p className="text-white/60 text-sm">
+                      {isBasketball ? 'Shot counter active — tap to stop' : 'Tap to stop'}
+                    </p>
+                  </>
+                )}
+
+                {(recordState === 'review' || recordState === 'uploading') && (
+                  <>
+                    {error && <p className="text-sm text-red-400 mb-1">{error}</p>}
+
+                    {isBasketball && (
+                      <div className="w-full max-w-xs">
+                        <p className="text-white/60 text-xs text-center mb-3">
+                          🏀 {reviewAttempts > 0 ? `Detected ${reviewAttempts} shot${reviewAttempts !== 1 ? 's' : ''} — how many went in?` : 'Track your shots'}
+                        </p>
+                        <div className="flex items-center justify-center gap-6 mb-1">
+                          <ShotCounter
+                            label="Attempts"
+                            value={reviewAttempts}
+                            onChange={(v) => {
+                              const next = Math.max(0, v)
+                              setReviewAttempts(next)
+                              if (reviewMakes > next) setReviewMakes(next)
+                            }}
+                          />
+                          <ShotCounter
+                            label="Makes"
+                            value={reviewMakes}
+                            max={reviewAttempts}
+                            onChange={(v) => setReviewMakes(Math.max(0, Math.min(v, reviewAttempts)))}
+                          />
+                          {reviewAttempts > 0 && (
+                            <div className="text-center">
+                              <div className="text-white text-xl font-bold">
+                                {Math.round((reviewMakes / reviewAttempts) * 100)}%
+                              </div>
+                              <div className="text-white/50 text-xs">made</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-3 w-full max-w-xs">
+                      <button
+                        onClick={retake}
+                        disabled={recordState === 'uploading'}
+                        className="flex-1 py-3 rounded-xl border-2 border-white/30 text-white font-semibold disabled:opacity-40 transition-colors"
+                      >
+                        Retake
+                      </button>
+                      <button
+                        onClick={save}
+                        disabled={recordState === 'uploading'}
+                        className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-40 transition-colors"
+                      >
+                        {recordState === 'uploading' ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </>
