@@ -38,7 +38,7 @@ const MIN_RIM_RUN = 3
 // Rim must be in top 50% of frame — foliage and ground objects are typically lower
 const MAX_RIM_GY_FRAC = 0.50
 
-type Pos = { x: number; y: number }
+export type Pos = { x: number; y: number }
 export type Box = { x: number; y: number; w: number; h: number }
 type FrameEntry = { ball: Pos | null }
 
@@ -47,6 +47,8 @@ export type ShotCounts = {
   ballDetected: boolean
   ballBox: Box | null
   hoopBox: Box | null
+  ballTrail: Pos[]      // recent ball positions for live trail
+  shotArc: Pos[] | null // positions of the arc that just completed (one frame only)
 }
 
 export function createShotTracker() {
@@ -60,6 +62,9 @@ export function createShotTracker() {
   let lastBallBox: Box | null = null
   let lastHoopBox: Box | null = null
   let ballLastSeen = false
+  let lastBallTrail: Pos[] = []
+  let currentArcPts: Pos[] = []
+  let pendingArc: Pos[] | null = null
 
   const hoopGrid = new Uint8Array(GRID_W * GRID_H)
 
@@ -263,13 +268,17 @@ export function createShotTracker() {
   }
 
   function recordAttempt() {
-    if (arcStartY - arcPeakY >= MIN_ARC_PX) attempts++
+    if (arcStartY - arcPeakY >= MIN_ARC_PX) {
+      attempts++
+      if (currentArcPts.length >= 3) pendingArc = [...currentArcPts]
+    }
+    currentArcPts = []
   }
 
   function processFrame(video: HTMLVideoElement): ShotCounts {
     const now = performance.now()
     if (now - lastProcessTime < 1000 / FPS_TARGET) {
-      return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox }
+      return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox, ballTrail: lastBallTrail, shotArc: null }
     }
     lastProcessTime = now
 
@@ -278,10 +287,10 @@ export function createShotTracker() {
     const h = Math.round((video.videoHeight || 240) * scale)
 
     const ctx = getCtx(w, h)
-    if (!ctx) return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox }
+    if (!ctx) return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox, ballTrail: lastBallTrail, shotArc: null }
 
     try { ctx.drawImage(video, 0, 0, w, h) } catch {
-      return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox }
+      return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox, ballTrail: lastBallTrail, shotArc: null }
     }
 
     const { data } = ctx.getImageData(0, 0, w, h)
@@ -299,6 +308,8 @@ export function createShotTracker() {
     history.push({ ball })
     if (history.length > HISTORY_LEN) history.shift()
 
+    lastBallTrail = history.filter(f => f.ball !== null).slice(-20).map(f => f.ball as Pos)
+
     if (!ball) {
       disappearedFrames++
       if (phase === 'falling' && disappearedFrames === DISAPPEARED_FRAMES) {
@@ -306,8 +317,10 @@ export function createShotTracker() {
         phase = 'idle'
       } else if (disappearedFrames > 20) {
         phase = 'idle'
+        currentArcPts = []
       }
-      return { attempts, ballDetected: false, ballBox: null, hoopBox }
+      const shotArc = pendingArc; pendingArc = null
+      return { attempts, ballDetected: false, ballBox: null, hoopBox, ballTrail: lastBallTrail, shotArc }
     }
 
     disappearedFrames = 0
@@ -315,29 +328,37 @@ export function createShotTracker() {
 
     switch (phase) {
       case 'idle':
-        if (vel < RISING_VEL) { phase = 'rising'; arcStartY = ball.y; arcPeakY = ball.y }
+        if (vel < RISING_VEL) {
+          phase = 'rising'; arcStartY = ball.y; arcPeakY = ball.y
+          currentArcPts = [ball]
+        }
         break
       case 'rising':
+        currentArcPts.push(ball)
         if (ball.y < arcPeakY) arcPeakY = ball.y
         if (vel > FALLING_VEL) {
           phase = 'falling'
         } else if (vel > -0.5 && arcStartY - arcPeakY < MIN_ARC_PX * 0.4) {
           phase = 'idle'
+          currentArcPts = []
         }
         break
       case 'falling':
+        currentArcPts.push(ball)
         if (vel < RISING_VEL) {
           recordAttempt()
           phase = 'rising'; arcStartY = ball.y; arcPeakY = ball.y
+          currentArcPts = [ball]
         }
         break
     }
 
-    return { attempts, ballDetected: true, ballBox, hoopBox }
+    const shotArc = pendingArc; pendingArc = null
+    return { attempts, ballDetected: true, ballBox, hoopBox, ballTrail: lastBallTrail, shotArc }
   }
 
   function getCounts(): ShotCounts {
-    return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox }
+    return { attempts, ballDetected: ballLastSeen, ballBox: lastBallBox, hoopBox: lastHoopBox, ballTrail: lastBallTrail, shotArc: null }
   }
 
   function reset() {
@@ -347,6 +368,9 @@ export function createShotTracker() {
     lastBallBox = lastHoopBox = null
     ballLastSeen = false
     hoopGrid.fill(0)
+    lastBallTrail = []
+    currentArcPts = []
+    pendingArc = null
   }
 
   return { processFrame, getCounts, reset }

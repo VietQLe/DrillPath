@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { createShotTracker, type ShotCounts, type Box } from '@/lib/shotTracker'
+import { createShotTracker, type ShotCounts, type Box, type Pos } from '@/lib/shotTracker'
 import type { DrillRecording } from '@/types'
 
 type RecordState = 'idle' | 'context' | 'setup' | 'recording' | 'review' | 'uploading'
@@ -89,7 +89,7 @@ export default function DrillRecorder({
   const [insightsError, setInsightsError] = useState<Record<string, string>>({})
 
   // Shot counting state
-  const [liveShots, setLiveShots] = useState<ShotCounts>({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
+  const [liveShots, setLiveShots] = useState<ShotCounts>({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null, ballTrail: [], shotArc: null })
   const [reviewAttempts, setReviewAttempts] = useState(0)
   const [reviewMakes, setReviewMakes] = useState(0)
   const [courtType, setCourtType] = useState<CourtType | null>(null)
@@ -113,6 +113,7 @@ export default function DrillRecorder({
   const rafRef = useRef<number | null>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const trackerRef = useRef(createShotTracker())
+  const shotArcsRef = useRef<{ pts: Pos[]; t: number }[]>([])
 
   const isBasketball = drillContext?.sport === 'basketball'
 
@@ -145,7 +146,7 @@ export default function DrillRecorder({
     }
   }, [])
 
-  function drawOverlay(ballBox: Box | null, hoopBox: Box | null) {
+  function drawOverlay(ballBox: Box | null, hoopBox: Box | null, trail: Pos[], shotArcs: { pts: Pos[]; t: number }[]) {
     const canvas = overlayCanvasRef.current
     const video = liveVideoRef.current
     if (!canvas || !video || video.videoWidth === 0) return
@@ -163,11 +164,10 @@ export default function DrillRecorder({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Use DPR-aware transform so coordinates are in CSS pixels
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, rect.width, rect.height)
 
-    // Map from processed-frame coords (320px wide) to display coords (object-cover)
+    // Map from processed-frame coords to display coords (object-cover)
     const procW = 320
     const procH = Math.round(320 * video.videoHeight / video.videoWidth)
     const scale = Math.max(rect.width / procW, rect.height / procH)
@@ -178,16 +178,62 @@ export default function DrillRecorder({
     const py = (y: number) => y * scale - offY
     const ps = (n: number) => n * scale
 
+    // Smooth curve through an array of Pos points using midpoint quadratics
+    function tracePath(pts: Pos[]) {
+      const c = ctx!
+      if (pts.length < 2) return
+      c.beginPath()
+      c.moveTo(px(pts[0].x), py(pts[0].y))
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2
+        const my = (pts[i].y + pts[i + 1].y) / 2
+        c.quadraticCurveTo(px(pts[i].x), py(pts[i].y), px(mx), py(my))
+      }
+      c.lineTo(px(pts[pts.length - 1].x), py(pts[pts.length - 1].y))
+      c.stroke()
+    }
+
+    const c = ctx
+
+    // Completed shot arcs — fade out over 3 seconds
+    const now = performance.now()
+    c.lineCap = 'round'
+    c.lineJoin = 'round'
+    for (const arc of shotArcs) {
+      const age = (now - arc.t) / 3000
+      if (age >= 1) continue
+      const opacity = 1 - age
+      // Glow layer
+      c.strokeStyle = `rgba(255,255,255,${opacity * 0.25})`
+      c.lineWidth = 9
+      tracePath(arc.pts)
+      // Main arc
+      c.strokeStyle = `rgba(251,146,60,${opacity * 0.9})`
+      c.lineWidth = 3
+      tracePath(arc.pts)
+    }
+
+    // Live trail — fading segments from oldest to newest
+    if (trail.length >= 2) {
+      for (let i = 1; i < trail.length; i++) {
+        const t = i / trail.length
+        c.beginPath()
+        c.strokeStyle = `rgba(251,146,60,${t * 0.7})`
+        c.lineWidth = 1.5 + t * 2.5
+        c.lineCap = 'round'
+        c.moveTo(px(trail[i - 1].x), py(trail[i - 1].y))
+        c.lineTo(px(trail[i].x), py(trail[i].y))
+        c.stroke()
+      }
+    }
+
     function drawBox(box: Box, color: string, label: string) {
-      const c = ctx! // non-null: checked above before drawBox is called
       const bx = px(box.x), by = py(box.y), bw = ps(box.w), bh = ps(box.h)
       c.strokeStyle = color
       c.lineWidth = 2
       c.setLineDash([5, 3])
       c.strokeRect(bx, by, bw, bh)
       c.setLineDash([])
-
-      // Label pill above the box
       c.font = 'bold 10px system-ui, sans-serif'
       const tw = c.measureText(label).width
       const lx = bx, ly = by - 16
@@ -199,8 +245,8 @@ export default function DrillRecorder({
       c.fillText(label, lx + 4, ly + 10)
     }
 
-    if (hoopBox) drawBox(hoopBox, '#4ade80', 'HOOP')  // green
-    if (ballBox) drawBox(ballBox, '#fb923c', 'BALL')   // orange
+    if (hoopBox) drawBox(hoopBox, '#4ade80', 'HOOP')
+    if (ballBox) drawBox(ballBox, '#fb923c', 'BALL')
   }
 
   function clearOverlay() {
@@ -215,19 +261,26 @@ export default function DrillRecorder({
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
+    shotArcsRef.current = []
     clearOverlay()
   }
 
   function startTracking() {
     trackerRef.current.reset()
-    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
+    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null, ballTrail: [], shotArc: null })
 
     function loop() {
       const video = liveVideoRef.current
       if (video && video.readyState >= 2) {
         const counts = trackerRef.current.processFrame(video)
         setLiveShots(counts)
-        drawOverlay(counts.ballBox, counts.hoopBox)
+        if (counts.shotArc) {
+          shotArcsRef.current = [
+            ...shotArcsRef.current.slice(-4),
+            { pts: counts.shotArc, t: performance.now() },
+          ]
+        }
+        drawOverlay(counts.ballBox, counts.hoopBox, counts.ballTrail, shotArcsRef.current)
       }
       rafRef.current = requestAnimationFrame(loop)
     }
@@ -314,7 +367,7 @@ export default function DrillRecorder({
     revokeBlobUrl()
     setReviewAttempts(0)
     setReviewMakes(0)
-    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
+    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null, ballTrail: [], shotArc: null })
     openCamera()
   }
 
@@ -329,7 +382,7 @@ export default function DrillRecorder({
     setError(null)
     setReviewAttempts(0)
     setReviewMakes(0)
-    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null })
+    setLiveShots({ attempts: 0, ballDetected: false, ballBox: null, hoopBox: null, ballTrail: [], shotArc: null })
     setCourtType(null)
   }
 
