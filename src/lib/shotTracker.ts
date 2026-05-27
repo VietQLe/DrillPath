@@ -19,7 +19,7 @@ const RIM_ORANGE = {
 
 const SAMPLE_STRIDE = 3
 const MIN_BALL_PX = 30
-const MAX_BALL_PX = 2000
+const MAX_BALL_PX = 600
 const MIN_ARC_PX = 30
 const RISING_VEL = -1.5
 const FALLING_VEL = 1.5
@@ -90,9 +90,9 @@ export function createShotTracker() {
   // Fails:  skin tones (G too close to R), grass/sky (B ≥ G or R not dominant)
   function isBallOrange(r: number, g: number, b: number): boolean {
     return r > g && r > b           // R dominant
-      && g < r * 0.78               // not yellow / skin tone
+      && g < r * 0.75               // not yellow / skin tone
       && b < g                      // not pink / purple
-      && r - b >= 45                // warm orange quality
+      && r - b >= 55                // warm orange quality (tighter than rim)
       && r >= 110                   // not too dark
       && g >= 30                    // not pure red
   }
@@ -129,9 +129,24 @@ export function createShotTracker() {
     }
 
     if (count < MIN_BALL_PX || count > MAX_BALL_PX) return null
+
+    const bw = maxX - minX + SAMPLE_STRIDE
+    const bh = maxY - minY + SAMPLE_STRIDE
+
+    // Reject blobs that are too large — ball can't span >22% of frame in either dimension
+    if (bw > w * 0.22 || bh > h * 0.22) return null
+
+    // Reject flat shapes — ball is roughly circular (rim is very wide and flat)
+    const aspect = bw / bh
+    if (aspect < 0.35 || aspect > 2.5) return null
+
+    // Reject sparse blobs — a real ball is a compact solid mass, not scattered pixels
+    const density = (count * SAMPLE_STRIDE * SAMPLE_STRIDE) / (bw * bh)
+    if (density < 0.40) return null
+
     return {
       pos: { x: sumX / count, y: sumY / count },
-      box: { x: minX, y: minY, w: maxX - minX + SAMPLE_STRIDE, h: maxY - minY + SAMPLE_STRIDE },
+      box: { x: minX, y: minY, w: bw, h: bh },
     }
   }
 
