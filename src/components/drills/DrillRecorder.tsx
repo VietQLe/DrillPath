@@ -615,6 +615,34 @@ export default function DrillRecorder({
               }`}
             />
 
+            {/* Hoop alignment guide — setup phase only */}
+            {isBasketball && recordState === 'setup' && (
+              <div className="absolute inset-0 pointer-events-none flex flex-col items-center">
+                {/* Guide box: upper-center, where the rim should sit */}
+                <div
+                  className="absolute border-2 border-dashed border-yellow-400 rounded-lg"
+                  style={{ left: '20%', right: '20%', top: '8%', bottom: '42%' }}
+                >
+                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                    <span className="bg-yellow-400 text-black text-xs font-bold px-2 py-0.5 rounded-full">
+                      Place hoop here
+                    </span>
+                  </div>
+                  {/* Corner accent marks */}
+                  <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-300 rounded-tl" />
+                  <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-yellow-300 rounded-tr" />
+                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-yellow-300 rounded-bl" />
+                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-yellow-300 rounded-br" />
+                </div>
+                {/* Hint at bottom */}
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                  <span className="bg-black/60 text-white/80 text-xs px-3 py-1 rounded-full">
+                    Keep hoop in frame while shooting
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Ball + hoop tracking overlay (basketball, recording only) */}
             {isBasketball && (
               <canvas

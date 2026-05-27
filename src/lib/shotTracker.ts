@@ -8,18 +8,18 @@
 
 // No fixed color struct for ball — we use ratio-based detection instead (see isBallOrange)
 
-// Rim: slightly broader — metal paint is more matte/darker than a shiny ball,
-// but keep it tight enough to not match sunlit foliage or sandy ground
+// Rim: tight to basketball-rim orange — foliage is more yellow-green (G > 115)
+// and dead leaves are more brown; true rim metal is pure orange with low G
 const RIM_ORANGE = {
   rMin: 155, rMax: 255,
-  gMin: 45,  gMax: 155,
-  bMin: 0,   bMax: 100,
-  rdiffMin: 65,
+  gMin: 45,  gMax: 115,
+  bMin: 0,   bMax: 80,
+  rdiffMin: 80,
 }
 
 const SAMPLE_STRIDE = 3
-const MIN_BALL_PX = 30
-const MAX_BALL_PX = 600
+const MIN_BALL_PX = 12
+const MAX_BALL_PX = 500
 const MIN_ARC_PX = 30
 const RISING_VEL = -1.5
 const FALLING_VEL = 1.5
@@ -35,8 +35,8 @@ const HOOP_THRESHOLD = 12
 
 // Minimum horizontal run of stable cells to be considered a rim (≥3 cells ≈ 40px)
 const MIN_RIM_RUN = 3
-// Rim must be in top 65% of frame (not on the ground)
-const MAX_RIM_GY_FRAC = 0.65
+// Rim must be in top 50% of frame — foliage and ground objects are typically lower
+const MAX_RIM_GY_FRAC = 0.50
 
 type Pos = { x: number; y: number }
 export type Box = { x: number; y: number; w: number; h: number }
@@ -90,11 +90,11 @@ export function createShotTracker() {
   // Fails:  skin tones (G too close to R), grass/sky (B ≥ G or R not dominant)
   function isBallOrange(r: number, g: number, b: number): boolean {
     return r > g && r > b           // R dominant
-      && g < r * 0.75               // not yellow / skin tone
+      && g < r * 0.78               // not yellow / skin tone
       && b < g                      // not pink / purple
-      && r - b >= 55                // warm orange quality (tighter than rim)
-      && r >= 110                   // not too dark
-      && g >= 30                    // not pure red
+      && r - b >= 48                // warm orange (looser than rim — ball can be worn/dull)
+      && r >= 100                   // not too dark (dull worn balls can be darker)
+      && g >= 28                    // not pure red
   }
 
   function isRimOrange(r: number, g: number, b: number): boolean {
@@ -142,7 +142,7 @@ export function createShotTracker() {
 
     // Reject sparse blobs — a real ball is a compact solid mass, not scattered pixels
     const density = (count * SAMPLE_STRIDE * SAMPLE_STRIDE) / (bw * bh)
-    if (density < 0.40) return null
+    if (density < 0.28) return null
 
     return {
       pos: { x: sumX / count, y: sumY / count },
