@@ -31,12 +31,17 @@ const FPS_TARGET = 15
 const GRID_W = 24
 const GRID_H = 18
 const HOOP_ACCUM_MAX = 20
-const HOOP_THRESHOLD = 12
+const HOOP_THRESHOLD = 8   // lower since zone is constrained — no outside noise
 
-// Minimum horizontal run of stable cells to be considered a rim (≥3 cells ≈ 40px)
-const MIN_RIM_RUN = 3
-// Rim must be in top 50% of frame — foliage and ground objects are typically lower
-const MAX_RIM_GY_FRAC = 0.50
+// Minimum horizontal run of stable cells to be considered a rim
+const MIN_RIM_RUN = 2      // rim is small at 3pt-line distance; 2 cells ≈ 26px
+
+// Detection zone matches the alignment guide box (30–70% wide, top 50% tall).
+// Only cells inside this zone are ever accumulated, so outside objects cannot win.
+const HOOP_GX_MIN = 7   // floor(0.30 * 24)
+const HOOP_GX_MAX = 16  // floor(0.70 * 24)  — inclusive
+const HOOP_GY_MIN = 0
+const HOOP_GY_MAX = 9   // floor(0.50 * 18)  — exclusive upper bound
 
 export type Pos = { x: number; y: number }
 export type Box = { x: number; y: number; w: number; h: number }
@@ -158,10 +163,9 @@ export function createShotTracker() {
   function updateHoopGrid(data: Uint8ClampedArray, w: number, h: number, ballBox: Box | null) {
     const cellW = w / GRID_W
     const cellH = h / GRID_H
-    const maxGY = Math.floor(GRID_H * MAX_RIM_GY_FRAC)
 
-    for (let gy = 0; gy < maxGY; gy++) {
-      for (let gx = 0; gx < GRID_W; gx++) {
+    for (let gy = HOOP_GY_MIN; gy < HOOP_GY_MAX; gy++) {
+      for (let gx = HOOP_GX_MIN; gx <= HOOP_GX_MAX; gx++) {
         const x0 = Math.floor(gx * cellW)
         const x1 = Math.floor((gx + 1) * cellW)
         const y0 = Math.floor(gy * cellH)
@@ -197,17 +201,15 @@ export function createShotTracker() {
   function computeHoopBox(data: Uint8ClampedArray, w: number, h: number): Box | null {
     const cellW = w / GRID_W
     const cellH = h / GRID_H
-    const maxGY = Math.floor(GRID_H * MAX_RIM_GY_FRAC)
 
-    // Find the longest HORIZONTAL run of triggered cells in the upper frame.
-    // The rim is a horizontal arc — scattered individual cells are noise/foliage.
+    // Find the longest horizontal run of triggered cells within the detection zone.
     let bestRun = { gx0: 0, gx1: 0, gy: 0, len: 0 }
 
-    for (let gy = 0; gy < maxGY; gy++) {
+    for (let gy = HOOP_GY_MIN; gy < HOOP_GY_MAX; gy++) {
       let runStart = -1
       let runLen = 0
-      for (let gx = 0; gx <= GRID_W; gx++) {
-        const triggered = gx < GRID_W && hoopGrid[gy * GRID_W + gx] >= HOOP_THRESHOLD
+      for (let gx = HOOP_GX_MIN; gx <= HOOP_GX_MAX + 1; gx++) {
+        const triggered = gx <= HOOP_GX_MAX && hoopGrid[gy * GRID_W + gx] >= HOOP_THRESHOLD
         if (triggered) {
           if (runStart === -1) runStart = gx
           runLen++
