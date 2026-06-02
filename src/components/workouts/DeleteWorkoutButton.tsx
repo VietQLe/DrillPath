@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 function formatDate(dateStr: string) {
@@ -34,13 +33,18 @@ export default function DeleteWorkoutButton({
   kidId: string
   isCompleted?: boolean
 }) {
-  const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const hasDate = !!date
-  const monthParam = date ? `&month=${date.slice(0, 7)}` : ''
-  const returnUrl = `/workouts?view=${hasDate ? 'month' : 'week'}&kid=${kidId}${monthParam}`
+  // Always return to week view — week view is the primary entry point and avoids
+  // the Router Cache serving a stale workouts list after deletion.
+  const returnUrl = `/workouts?view=week&kid=${kidId}`
+
+  function navigateBack() {
+    // Hard navigation bypasses Next.js Router Cache so the workouts page always
+    // re-fetches its server data after a mutation.
+    window.location.href = returnUrl
+  }
 
   if (date && isBeforeToday(date)) {
     return (
@@ -63,26 +67,22 @@ export default function DeleteWorkoutButton({
     setDeleting(true)
     const supabase = createClient()
     await supabase.from('plan_exceptions').insert({ plan_id: planId, exception_date: date })
-    router.push(returnUrl)
-    router.refresh()
+    navigateBack()
   }
 
   async function handleEndSeries() {
     setDeleting(true)
     const supabase = createClient()
     if (date) {
-      // End the series the day before this occurrence
       await supabase
         .from('training_plans')
         .update({ end_date: dayBefore(date) })
         .eq('id', planId)
     } else {
-      // No date context — delete the whole plan
       await supabase.from('plan_drills').delete().eq('plan_id', planId)
       await supabase.from('training_plans').delete().eq('id', planId)
     }
-    router.push(returnUrl)
-    router.refresh()
+    navigateBack()
   }
 
   async function handleDeleteAll() {
@@ -90,8 +90,7 @@ export default function DeleteWorkoutButton({
     const supabase = createClient()
     await supabase.from('plan_drills').delete().eq('plan_id', planId)
     await supabase.from('training_plans').delete().eq('id', planId)
-    router.push(returnUrl)
-    router.refresh()
+    navigateBack()
   }
 
   if (!confirming) {
@@ -105,7 +104,7 @@ export default function DeleteWorkoutButton({
     )
   }
 
-  if (hasDate) {
+  if (date) {
     return (
       <div className="space-y-2">
         <p className="text-xs text-slate-500 text-center font-medium uppercase tracking-wide mb-3">
